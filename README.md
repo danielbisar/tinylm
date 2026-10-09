@@ -95,25 +95,32 @@ The next thing I’d test is context 256 before touching experts or anything mor
 So 128 → 256 gives only 0.003 better loss but costs ~37% more VRAM.
 I’d keep context 128 as the better efficiency point.
 
+# context=128, dim=256
+
+| Model | Params | VRAM | Val loss |
+|---|---:|---:|---:|
+| dim 128, ctx 128, A→B ×3 | 479k | 31.8 MB | 1.2649 |
+| **dim 256, ctx 128, A→B ×3** | **1.74M** | **57.7 MB** | **1.1105** |
+
 ## output
 
 ```
-0: train loss=5.6598
-2000: train loss=2.3193
-4000: train loss=2.3595
-6000: train loss=1.8979
-8000: train loss=1.7419
-10000: train loss=1.7720
-12000: train loss=1.8245
-14000: train loss=1.2902
-16000: train loss=1.5261
-18000: train loss=1.5704
+0: train loss=5.6691
+2000: train loss=2.1694
+4000: train loss=1.6516
+6000: train loss=1.1722
+8000: train loss=1.4581
+10000: train loss=1.4099
+12000: train loss=1.3132
+14000: train loss=1.4058
+16000: train loss=1.3288
+18000: train loss=1.1250
 
-Parameters:      495,360
-Training time:   195.54s
-Peak VRAM:       43.5 MB
-Steps/sec:       102.3
-Validation loss: 1.2619
+Parameters:      1,744,128
+Training time:   198.15s
+Peak VRAM:       57.7 MB
+Steps/sec:       100.9
+Validation loss: 1.1105
 
-Once upon a time the beautiful the ball and said, "I wanted to the be some the started to play with the started to the better. The bird was so happy and said, "That you we can to the park. I was so so happy and the s
+Once upon a time there was a big box named Lily. She loved to play with the box and started to see the box. She was so happy and said, "I wanted to play with the boat with the boat and the boatwent to the boat and t
 ```
