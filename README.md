@@ -33,12 +33,6 @@ E --> F["output"]
 
 # run
 
-```
-A → B → C → D       867k parameters
-A → A → A → A       272k parameters
-A → B → A → B       expected ~471k parameters
-```
-
 ## simple recursion
 ```
 This is a useful result.
@@ -74,27 +68,33 @@ The repetitive generation is still a weakness, but that affects all these tiny m
 
 I wouldn't worry much about the repetitive generated text yet. We're using greedy argmax, only 64 bytes of context, and a ~0.5M parameter model.
 
+## 2 blocks each 4 times
+
+| Model | Params | Time | VRAM | Val loss |
+|---|---:|---:|---:|---:|
+| A→B ×3 | 470,784 | 194.8s | 27.2 MB | **1.3039** |
+| A→B ×4 | 470,784 | 248.0s | 28.4 MB | 1.3072 |
+
 ## output
 
 
 ```
-python main.py
-0: train loss=5.6945
-2000: train loss=2.1614
-4000: train loss=1.6773
-6000: train loss=1.4923
-8000: train loss=1.5646
-10000: train loss=1.0479
-12000: train loss=1.3589
-14000: train loss=1.0987
-16000: train loss=1.0264
-18000: train loss=1.4341
+0: train loss=5.6593
+2000: train loss=1.7291
+4000: train loss=1.9288
+6000: train loss=2.0501
+8000: train loss=1.4713
+10000: train loss=1.6772
+12000: train loss=0.6984
+14000: train loss=1.8523
+16000: train loss=1.6198
+18000: train loss=1.4691
 
 Parameters:      470,784
-Training time:   194.78s
-Peak VRAM:       27.2 MB
-Steps/sec:       102.7
-Validation loss: 1.3039
+Training time:   247.96s
+Peak VRAM:       28.4 MB
+Steps/sec:       80.7
+Validation loss: 1.3072
 
-Once upon a time, there was a little girl named Lily. They looked to play with his for the started to play with his for the started to play with his for the started to play with his for the started to play with his f
+Once upon a time, there was a little girl named Lily. They wanted to to the beach and said the man and said the because and said the because and said the because and said and she was so he was so happy. She was so ha
 ```
