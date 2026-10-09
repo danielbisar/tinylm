@@ -82,27 +82,38 @@ I wouldn't worry much about the repetitive generated text yet. We're using greed
 | A→B ×3 | 64 | 1.3039 | 194.8s | 27.2 MB |
 | A→B ×3 | 128 | **1.2649** | 189.7s | 31.8 MB |
 
+# context=256 instead of 64
+
+The next thing I’d test is context 256 before touching experts or anything more complex. This experiment strongly suggests the model is still context-limited.
+
+| Context | Val loss | VRAM | Time |
+|---:|---:|---:|---:|
+| 64 | 1.3039 | 27.2 MB | 194.8s |
+| 128 | **1.2649** | 31.8 MB | 189.7s |
+| 256 | **1.2619** | 43.5 MB | 195.5s |
+
+So 128 → 256 gives only 0.003 better loss but costs ~37% more VRAM.
+I’d keep context 128 as the better efficiency point.
+
 ## output
 
-
 ```
-python main.py
-0: train loss=5.5959
-2000: train loss=2.0419
-4000: train loss=1.9326
-6000: train loss=1.5907
-8000: train loss=1.5470
-10000: train loss=1.4705
-12000: train loss=1.4603
-14000: train loss=1.6198
-16000: train loss=1.5412
-18000: train loss=1.5170
+0: train loss=5.6598
+2000: train loss=2.3193
+4000: train loss=2.3595
+6000: train loss=1.8979
+8000: train loss=1.7419
+10000: train loss=1.7720
+12000: train loss=1.8245
+14000: train loss=1.2902
+16000: train loss=1.5261
+18000: train loss=1.5704
 
-Parameters:      478,976
-Training time:   189.68s
-Peak VRAM:       31.8 MB
-Steps/sec:       105.4
-Validation loss: 1.2649
+Parameters:      495,360
+Training time:   195.54s
+Peak VRAM:       43.5 MB
+Steps/sec:       102.3
+Validation loss: 1.2619
 
-Once upon a time, there was a little girl named Lily. They were was very and sad. They said, "I want to the park and a little girl named Lily. They were the booke and a looked and a looked and a looked and a looked a
+Once upon a time the beautiful the ball and said, "I wanted to the be some the started to play with the started to the better. The bird was so happy and said, "That you we can to the park. I was so so happy and the s
 ```
