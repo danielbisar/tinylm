@@ -33,7 +33,8 @@ recurrent_steps = 2
 # So both runs see approximately the same amount
 # of training data.
 
-steps = 625
+steps = 5000
+print_every_x_steps = 500
 
 torch.manual_seed(42)
 
@@ -44,6 +45,7 @@ print(f"Device:     {device}")
 print(f"Context:    {context}")
 print(f"Batch size: {batch_size}")
 print(f"Steps:      {steps}")
+print(f"Print every x steps: {print_every_x_steps}")
 print()
 
 
@@ -226,9 +228,9 @@ for step in range(steps):
 
     optimizer.step()
 
-    if step % 50 == 0:
+    if step % print_every_x_steps == 0:
         print(
-            f"{step:4d}: "
+            f"{step:7d}: "
             f"train loss={loss.item():.4f}"
         )
 

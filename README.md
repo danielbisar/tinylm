@@ -158,7 +158,7 @@ For your RTX 3060, that trade is attractive because we have much more compute he
 I’d keep 3 unique blocks ×2 as our current baseline.
 The next thing I’d change is probably the training setup rather than architecture: use a batch larger than 1. Right now each update learns from only one 128-byte sequence, which makes those training-loss numbers jump around a lot and wastes GPU parallelism.
 
-## change impl to use random chunks=32
+# change impl to use random chunks=32
 
 But look at throughput
 Old 3 blocks ×2 run:
@@ -186,16 +186,29 @@ And from now on, we should keep batch size fixed when comparing architectures. T
 
 One other useful observation: your training loss with batch 32 is beautifully smooth
 
+# ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384
+
+| Setup | Training bytes | Time | Val loss |
+|---|---:|---:|---:|
+| batch 1 | 2.56M | 218.6s | 1.0097 |
+| batch 32 | 20.48M | 328.6s | **0.8539** |
+
+The generated text is also much better:
+“Once upon a time, there was a little girl named Lily. She loved to play outside in the garden...”
+
+That’s now coherent enough that architecture comparisons become more meaningful.
+The next thing I’d do is not change the architecture yet. Keep this exact setup and add checkpointing + periodic validation, for example every 500 steps, so we can see whether the model is still improving at 5000 or already starting to plateau.
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
-python main.py
+ python main.py
 Device:     cuda
 Context:    128
 Batch size: 32
-Steps:      625
+Steps:      5000
 
 Loading training data...
 Training bytes: 18,999,960
@@ -205,33 +218,30 @@ Validation bytes: 187,001
 Parameters: 5,570,176
 
    0: train loss=5.6999
-  50: train loss=2.4204
- 100: train loss=2.3265
- 150: train loss=2.2468
- 200: train loss=2.1155
- 250: train loss=1.9431
- 300: train loss=1.8363
- 350: train loss=1.7548
- 400: train loss=1.6522
- 450: train loss=1.5591
  500: train loss=1.5526
- 550: train loss=1.4728
- 600: train loss=1.4288
+1000: train loss=1.2585
+1500: train loss=1.1431
+2000: train loss=1.0947
+2500: train loss=0.9670
+3000: train loss=0.9482
+3500: train loss=0.9217
+4000: train loss=0.9078
+4500: train loss=0.9636
 
 ------------------------------
 Results
 ------------------------------
 Parameters:        5,570,176
-Training bytes:    2,560,000
-Training time:     41.06s
+Training bytes:    20,480,000
+Training time:     328.62s
 Peak VRAM:         745.4 MB
 Steps/sec:         15.22
-Bytes/sec:         62,348
-Validation loss:   1.3875
+Bytes/sec:         62,321
+Validation loss:   0.8539
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a big big big was so happy. They said not was and sad and started to stare and started to she was and started to started to started to started to started to started to started to started t
+Once upon a time, there was a little girl named Lily. She loved to play outside in the garden and saw a big box in the sky. One day, she saw a big box on the ground. She wanted to go to the boat and said, "I want to
 ```
