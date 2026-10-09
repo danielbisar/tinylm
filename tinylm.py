@@ -7,6 +7,7 @@ class TransformerBlock(nn.Module):
         super().__init__()
 
         self.norm1 = nn.LayerNorm(dim)
+
         self.attn = nn.MultiheadAttention(
             embed_dim=dim,
             num_heads=heads,
@@ -14,6 +15,7 @@ class TransformerBlock(nn.Module):
         )
 
         self.norm2 = nn.LayerNorm(dim)
+
         self.mlp = nn.Sequential(
             nn.Linear(dim, dim * 4),
             nn.GELU(),
@@ -24,14 +26,20 @@ class TransformerBlock(nn.Module):
         length = x.size(1)
 
         mask = torch.triu(
-            torch.ones(length, length, device=x.device),
+            torch.ones(
+                length,
+                length,
+                device=x.device,
+            ),
             diagonal=1,
         ).bool()
 
         h = self.norm1(x)
 
         attn_out, _ = self.attn(
-            h, h, h,
+            h,
+            h,
+            h,
             attn_mask=mask,
         )
 
@@ -42,19 +50,39 @@ class TransformerBlock(nn.Module):
 
 
 class TinyLM(nn.Module):
-    def __init__(self, dim=128, heads=4, max_context=128):
+    def __init__(
+        self,
+        dim=128,
+        heads=4,
+        max_context=128,
+        recurrent_steps=4,
+    ):
         super().__init__()
 
-        self.token_embedding = nn.Embedding(256, dim)
-        self.position_embedding = nn.Embedding(max_context, dim)
+        self.token_embedding = nn.Embedding(
+            256,
+            dim,
+        )
 
-        self.blocks = nn.ModuleList([
-            TransformerBlock(dim, heads)
-            for _ in range(4)
-        ])
+        self.position_embedding = nn.Embedding(
+            max_context,
+            dim,
+        )
+
+        # Only ONE block
+        self.block = TransformerBlock(
+            dim,
+            heads,
+        )
+
+        self.recurrent_steps = recurrent_steps
 
         self.norm = nn.LayerNorm(dim)
-        self.output = nn.Linear(dim, 256)
+
+        self.output = nn.Linear(
+            dim,
+            256,
+        )
 
     def forward(self, tokens):
         batch, length = tokens.shape
@@ -69,8 +97,10 @@ class TinyLM(nn.Module):
             + self.position_embedding(positions)
         )
 
-        for block in self.blocks:
-            x = block(x)
+        # Reuse the SAME block 4 times
+        for _ in range(self.recurrent_steps):
+            x = self.block(x)
+
         x = self.norm(x)
 
         return self.output(x)
