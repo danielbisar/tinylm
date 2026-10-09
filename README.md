@@ -95,32 +95,52 @@ The next thing I’d test is context 256 before touching experts or anything mor
 So 128 → 256 gives only 0.003 better loss but costs ~37% more VRAM.
 I’d keep context 128 as the better efficiency point.
 
-# context=128, dim=256
+# context=128, dim=256, recurrent_steps=3
 
 | Model | Params | VRAM | Val loss |
 |---|---:|---:|---:|
 | dim 128, ctx 128, A→B ×3 | 479k | 31.8 MB | 1.2649 |
 | **dim 256, ctx 128, A→B ×3** | **1.74M** | **57.7 MB** | **1.1105** |
 
-## output
+# context=128, dim=384, recurrent_steps=3
+
+This is another clear gain.
+| dim | Params | VRAM | Val loss |
+|---:|---:|---:|---:|
+| 128 | 479k | 31.8 MB | 1.2649 |
+| 256 | 1.74M | 57.7 MB | 1.1105 |
+| **384** | **3.80M** | **99 MB** | **1.0384** |
+
+
+And the generated text is much more coherent now.
+The important pattern so far:
+Wider model capacity is buying much more quality than longer context or extra recurrent passes.
+
+You still have enormous VRAM headroom, so I’d test dim=512, context=128, recurrent_steps=3 next.
+That should tell us whether the gains continue or start flattening.
+
+## last tests output
+
+Note: for more output see git history.
 
 ```
-0: train loss=5.6691
-2000: train loss=2.1694
-4000: train loss=1.6516
-6000: train loss=1.1722
-8000: train loss=1.4581
-10000: train loss=1.4099
-12000: train loss=1.3132
-14000: train loss=1.4058
-16000: train loss=1.3288
-18000: train loss=1.1250
+python main.py
+0: train loss=5.6944
+2000: train loss=1.6248
+4000: train loss=1.6732
+6000: train loss=1.4804
+8000: train loss=1.3567
+10000: train loss=1.1909
+12000: train loss=1.3579
+14000: train loss=1.0142
+16000: train loss=1.0235
+18000: train loss=1.1158
 
-Parameters:      1,744,128
-Training time:   198.15s
-Peak VRAM:       57.7 MB
-Steps/sec:       100.9
-Validation loss: 1.1105
+Parameters:      3,795,712
+Training time:   204.99s
+Peak VRAM:       99.0 MB
+Steps/sec:       97.6
+Validation loss: 1.0384
 
-Once upon a time there was a big box named Lily. She loved to play with the box and started to see the box. She was so happy and said, "I wanted to play with the boat with the boat and the boatwent to the boat and t
+Once upon a time, there was a little girl named Lily. She loved to play with her toys. One day, they went to the sun and they were so he wanted to see the sun with her family. They were happy and they were so happy.
 ```

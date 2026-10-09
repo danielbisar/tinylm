@@ -50,7 +50,7 @@ validation_data = torch.tensor(
 # -------------------------
 
 model = TinyLM(
-    dim=256,
+    dim=384,
     heads=4,
     max_context=context,
     recurrent_steps=3,
