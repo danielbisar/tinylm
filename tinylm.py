@@ -63,6 +63,7 @@ class TinyLM(nn.Module):
             TransformerBlock(dim, heads),
             TransformerBlock(dim, heads),
             TransformerBlock(dim, heads),
+            TransformerBlock(dim, heads),
         ])
 
         self.recurrent_steps = recurrent_steps

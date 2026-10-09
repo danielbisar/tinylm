@@ -51,7 +51,7 @@ model = TinyLM(
     dim=384,
     heads=4,
     max_context=context,
-    recurrent_steps=2,
+    recurrent_steps=1,
 ).to(device)
 
 optimizer = torch.optim.AdamW(

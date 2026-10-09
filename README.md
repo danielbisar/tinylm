@@ -135,28 +135,51 @@ That should tell us whether the gains continue or start flattening.
 | 3 blocks ×2, dim 384 | 5.57M | 126 MB | **1.0097** |
 | 2 blocks ×3, dim 512 | 6.63M | 150 MB | 1.0321 |
 
+So adding more unique blocks helped more than just increasing width.
+The generation also looks cleaner.
+That suggests our current bottleneck is more likely unique model capacity, not extra recurrent depth.
+
+# dim=384, context=128, recurrent_steps=1, blocks=4
+
+That gives only 4 block applications instead of 6, but more unique parameters. It will tell us whether recurrence is actually buying us anything at this scale.
+
+| Design | Params | Block applications | Time | VRAM | Val loss |
+|---|---:|---:|---:|---:|---:|
+| 3 unique ×2 | 5.57M | 6 | 218.6s | 126 MB | **1.0097** |
+| 4 unique ×1 | 7.34M | 4 | 173.3s | 158 MB | 1.0239 |
+
+So the 3×2 model is:
+- ~24% fewer parameters
+- ~20% less VRAM
+- slightly better validation loss
+- but ~26% slower
+
+For your RTX 3060, that trade is attractive because we have much more compute headroom than VRAM pressure.
+I’d keep 3 unique blocks ×2 as our current baseline.
+The next thing I’d change is probably the training setup rather than architecture: use a batch larger than 1. Right now each update learns from only one 128-byte sequence, which makes those training-loss numbers jump around a lot and wastes GPU parallelism.
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
 python main.py
-0: train loss=5.7295
-2000: train loss=1.5075
-4000: train loss=1.7961
-6000: train loss=1.1258
-8000: train loss=1.8389
-10000: train loss=1.2745
-12000: train loss=1.1411
-14000: train loss=1.6141
-16000: train loss=1.1465
-18000: train loss=1.1620
+0: train loss=5.6739
+2000: train loss=1.7304
+4000: train loss=1.7099
+6000: train loss=1.7241
+8000: train loss=1.4760
+10000: train loss=1.2537
+12000: train loss=1.3980
+14000: train loss=1.8844
+16000: train loss=1.2550
+18000: train loss=0.9937
 
-Parameters:      5,570,176
-Training time:   218.61s
-Peak VRAM:       126.1 MB
-Steps/sec:       91.5
-Validation loss: 1.0097
+Parameters:      7,344,640
+Training time:   173.28s
+Peak VRAM:       158.0 MB
+Steps/sec:       115.4
+Validation loss: 1.0239
 
-Once upon a time, there was a little girl named Lily. She loved to play with her friends. She was always sorry and her friends. She wanted to see the bear was a big box and have fun and the bear was so happy and they
+Once upon a time there was a little boy named Timmy. Timmy loved to play with her faces and saw a big box and said, "I will help your toys and she we have your best and she we have your best and she were some and she
 ```
