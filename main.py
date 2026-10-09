@@ -45,7 +45,7 @@ print("Loading training data...")
 
 train_dataset = load_dataset(
     "roneneldan/TinyStories",
-    split="train[:1%]",
+    split="train[:5%]",
 )
 
 train_text = "\n".join(train_dataset["text"])

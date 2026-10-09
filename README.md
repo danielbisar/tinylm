@@ -217,6 +217,14 @@ Best next experiment: keep the same model and training setup, but increase the d
 why: current model has now seen ~41M sampled bytes
 training corpus only contains ~19M unique bytes
 
+# %5 trainig set
+
+Interesting: using 5% training data produced almost the same validation loss as 1%.
+1% data: best val ≈ 0.7820
+5% data: best val ≈ 0.7826
+
+So at this training budget, data diversity is not the bottleneck. The model itself/training setup is now the stronger candidate.
+
 ## last tests output
 
 Note: for more output see git history.
@@ -231,49 +239,51 @@ Validate every x steps: 500
 Validate batches: 20
 
 Loading training data...
-Training bytes: 18,999,960
+Training bytes: 93,815,188
 Loading validation data...
 Validation bytes: 187,001
 
 Parameters: 5,570,176
 
-    500: train=1.4767  val=1.4665
+    500: train=1.5174  val=1.4718
        saved best_model.pt
-   1000: train=1.2075  val=1.1927
+   1000: train=1.2727  val=1.2002
        saved best_model.pt
-   1500: train=1.1672  val=1.0918
+   1500: train=1.1544  val=1.0997
        saved best_model.pt
-   2000: train=1.0882  val=1.0225
+   2000: train=1.1096  val=1.0289
        saved best_model.pt
-   2500: train=1.1062  val=0.9763
+   2500: train=1.0373  val=0.9771
        saved best_model.pt
-   3000: train=0.9488  val=0.9548
+   3000: train=0.9970  val=0.9572
        saved best_model.pt
-   3500: train=0.9535  val=0.9257
+   3500: train=0.9577  val=0.9258
        saved best_model.pt
-   4000: train=0.9422  val=0.9012
+   4000: train=0.9622  val=0.9070
        saved best_model.pt
-   4500: train=0.8149  val=0.8718
+   4500: train=0.8981  val=0.8779
        saved best_model.pt
-   5000: train=0.9033  val=0.8570
+   5000: train=0.9169  val=0.8631
        saved best_model.pt
-   5500: train=0.8864  val=0.8588
-   6000: train=0.9447  val=0.8324
+   5500: train=0.9092  val=0.8592
        saved best_model.pt
-   6500: train=0.9058  val=0.8240
+   6000: train=0.8749  val=0.8348
        saved best_model.pt
-   7000: train=0.8753  val=0.8207
+   6500: train=0.8435  val=0.8274
        saved best_model.pt
-   7500: train=0.8472  val=0.8163
+   7000: train=0.8856  val=0.8182
        saved best_model.pt
-   8000: train=0.8380  val=0.7883
+   7500: train=0.8595  val=0.8133
        saved best_model.pt
-   8500: train=0.8113  val=0.7947
-   9000: train=0.8790  val=0.7831
+   8000: train=0.8991  val=0.7905
        saved best_model.pt
-   9500: train=0.8001  val=0.7820
+   8500: train=0.7968  val=0.7937
+   9000: train=0.7881  val=0.7832
        saved best_model.pt
-  10000: train=0.8291  val=0.7847
+   9500: train=0.8222  val=0.7827
+       saved best_model.pt
+  10000: train=0.8540  val=0.7826
+       saved best_model.pt
 Saved last_model.pt
 
 ------------------------------
@@ -281,15 +291,15 @@ Results
 ------------------------------
 Parameters:      5,570,176
 Training bytes:  40,960,000
-Training time:   670.40s
+Training time:   679.34s
 Peak VRAM:       745.4 MB
-Bytes/sec:       61,098
-Best val loss:   0.7820
-Using checkpoint from step 9500 (val=0.7820)
+Bytes/sec:       60,294
+Best val loss:   0.7826
+Using checkpoint from step 10000 (val=0.7826)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little girl named Lily. She loved to play outside in the park with her friends. One day, Lily was playing with her toys in the park. She wanted to see what was inside the water was and s
+Once upon a time, there was a little girl named Lily. She loved to play with her toys and have fun. One day, she saw a big sign on the ground. She wanted to show it to her mom. She said they were both happy. She told
 ```
