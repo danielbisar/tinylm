@@ -8,7 +8,7 @@ from tinylm import TinyLM
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-context = 64
+context = 128
 
 
 # -------------------------
@@ -53,7 +53,7 @@ model = TinyLM(
     dim=128,
     heads=4,
     max_context=context,
-    recurrent_steps=4,
+    recurrent_steps=3,
 ).to(device)
 
 optimizer = torch.optim.AdamW(

@@ -75,26 +75,34 @@ I wouldn't worry much about the repetitive generated text yet. We're using greed
 | A→B ×3 | 470,784 | 194.8s | 27.2 MB | **1.3039** |
 | A→B ×4 | 470,784 | 248.0s | 28.4 MB | 1.3072 |
 
+# context=128 instead of 64
+
+| Model | Context | Val loss | Time | VRAM |
+|---|---:|---:|---:|---:|
+| A→B ×3 | 64 | 1.3039 | 194.8s | 27.2 MB |
+| A→B ×3 | 128 | **1.2649** | 189.7s | 31.8 MB |
+
 ## output
 
 
 ```
-0: train loss=5.6593
-2000: train loss=1.7291
-4000: train loss=1.9288
-6000: train loss=2.0501
-8000: train loss=1.4713
-10000: train loss=1.6772
-12000: train loss=0.6984
-14000: train loss=1.8523
-16000: train loss=1.6198
-18000: train loss=1.4691
+python main.py
+0: train loss=5.5959
+2000: train loss=2.0419
+4000: train loss=1.9326
+6000: train loss=1.5907
+8000: train loss=1.5470
+10000: train loss=1.4705
+12000: train loss=1.4603
+14000: train loss=1.6198
+16000: train loss=1.5412
+18000: train loss=1.5170
 
-Parameters:      470,784
-Training time:   247.96s
-Peak VRAM:       28.4 MB
-Steps/sec:       80.7
-Validation loss: 1.3072
+Parameters:      478,976
+Training time:   189.68s
+Peak VRAM:       31.8 MB
+Steps/sec:       105.4
+Validation loss: 1.2649
 
-Once upon a time, there was a little girl named Lily. They wanted to to the beach and said the man and said the because and said the because and said the because and said and she was so he was so happy. She was so ha
+Once upon a time, there was a little girl named Lily. They were was very and sad. They said, "I want to the park and a little girl named Lily. They were the booke and a looked and a looked and a looked and a looked a
 ```
