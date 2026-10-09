@@ -225,12 +225,28 @@ Interesting: using 5% training data produced almost the same validation loss as 
 
 So at this training budget, data diversity is not the bottleneck. The model itself/training setup is now the stronger candidate.
 
+I’d do them in this order, one at a time:
+1. LayerNorm -> RMSNorm
+2. GELU MLP -> SwiGLU
+3. learned positional embeddings -> RoPE
+4. then compare recurrence patterns again
+
+# LayerNorm -> RMSNorm
+RMSNorm is essentially a wash here:
+| Norm | Params | Time | VRAM | Best val |
+|---|---:|---:|---:|---:|
+| LayerNorm | 5,570,176 | 679.3s | 745.4 MB | 0.7826 |
+| RMSNorm | 5,567,488 | 671.8s | 745.2 MB | **0.7821** |
+
+So: tiny improvement in speed/params, quality basically unchanged.
+That means RMSNorm is reasonable to keep, but it’s not a breakthrough.
+Next I’d test SwiGLU instead of the current GELU MLP. That changes the feed-forward part, which is a bigger architectural change and may matter more.
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
-python main.py
 Device:     cuda
 Context:    128
 Batch size: 32
@@ -243,63 +259,61 @@ Training bytes: 93,815,188
 Loading validation data...
 Validation bytes: 187,001
 
-Parameters: 5,570,176
+Parameters: 5,567,488
 
-    500: train=1.5174  val=1.4718
+    500: train=1.5183  val=1.4747
        saved best_model.pt
-   1000: train=1.2727  val=1.2002
+   1000: train=1.2786  val=1.2016
        saved best_model.pt
-   1500: train=1.1544  val=1.0997
+   1500: train=1.1568  val=1.1026
        saved best_model.pt
-   2000: train=1.1096  val=1.0289
+   2000: train=1.1141  val=1.0290
        saved best_model.pt
-   2500: train=1.0373  val=0.9771
+   2500: train=1.0547  val=0.9753
        saved best_model.pt
-   3000: train=0.9970  val=0.9572
+   3000: train=0.9919  val=0.9553
        saved best_model.pt
-   3500: train=0.9577  val=0.9258
+   3500: train=0.9629  val=0.9246
        saved best_model.pt
-   4000: train=0.9622  val=0.9070
+   4000: train=0.9610  val=0.9085
        saved best_model.pt
-   4500: train=0.8981  val=0.8779
+   4500: train=0.9074  val=0.8789
        saved best_model.pt
-   5000: train=0.9169  val=0.8631
+   5000: train=0.9203  val=0.8629
        saved best_model.pt
-   5500: train=0.9092  val=0.8592
+   5500: train=0.8965  val=0.8626
        saved best_model.pt
-   6000: train=0.8749  val=0.8348
+   6000: train=0.8798  val=0.8326
        saved best_model.pt
-   6500: train=0.8435  val=0.8274
+   6500: train=0.8479  val=0.8273
        saved best_model.pt
-   7000: train=0.8856  val=0.8182
+   7000: train=0.8815  val=0.8155
        saved best_model.pt
-   7500: train=0.8595  val=0.8133
+   7500: train=0.8656  val=0.8171
+   8000: train=0.8979  val=0.7923
        saved best_model.pt
-   8000: train=0.8991  val=0.7905
+   8500: train=0.8035  val=0.7939
+   9000: train=0.7854  val=0.7861
        saved best_model.pt
-   8500: train=0.7968  val=0.7937
-   9000: train=0.7881  val=0.7832
+   9500: train=0.8224  val=0.7821
        saved best_model.pt
-   9500: train=0.8222  val=0.7827
-       saved best_model.pt
-  10000: train=0.8540  val=0.7826
-       saved best_model.pt
+  10000: train=0.8490  val=0.7839
 Saved last_model.pt
 
 ------------------------------
 Results
 ------------------------------
-Parameters:      5,570,176
+Parameters:      5,567,488
 Training bytes:  40,960,000
-Training time:   679.34s
-Peak VRAM:       745.4 MB
-Bytes/sec:       60,294
-Best val loss:   0.7826
-Using checkpoint from step 10000 (val=0.7826)
+Training time:   671.82s
+Peak VRAM:       745.2 MB
+Bytes/sec:       60,969
+Best val loss:   0.7821
+Using checkpoint from step 9500 (val=0.7821)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little girl named Lily. She loved to play with her toys and have fun. One day, she saw a big sign on the ground. She wanted to show it to her mom. She said they were both happy. She told
+Once upon a time, there was a little girl named Lily. She loved to play with her toys and eat cars and shells. One day, she was playing with her toys in the park. She had a big bag with a big smile on her face. She w
 ```

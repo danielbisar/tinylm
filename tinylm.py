@@ -6,7 +6,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, dim=128, heads=4):
         super().__init__()
 
-        self.norm1 = nn.LayerNorm(dim)
+        self.norm1 = nn.RMSNorm(dim)
 
         self.attn = nn.MultiheadAttention(
             embed_dim=dim,
@@ -14,7 +14,7 @@ class TransformerBlock(nn.Module):
             batch_first=True,
         )
 
-        self.norm2 = nn.LayerNorm(dim)
+        self.norm2 = nn.RMSNorm(dim)
 
         self.mlp = nn.Sequential(
             nn.Linear(dim, dim * 4),
@@ -90,7 +90,7 @@ class TinyLM(nn.Module):
         # A -> B -> C -> A -> B -> C
         self.recurrent_steps = recurrent_steps
 
-        self.norm = nn.LayerNorm(dim)
+        self.norm = nn.RMSNorm(dim)
 
         # Convert internal vector back into
         # probabilities/scores for 256 possible bytes.
