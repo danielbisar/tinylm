@@ -260,6 +260,39 @@ SwiGLU is a real win here.
 So you gained about 4.6% lower validation loss for roughly the same parameter count, at the cost of ~13% more VRAM and slightly slower training.
 The generation sample also looks noticeably cleaner.
 
+# Use RoPE
+
+updated tinylm.py with RoPE. I replaced nn.MultiheadAttention with a small custom attention module so we can rotate Q/K directly.
+
+before:
+token embedding + learned position embedding
+                    ↓
+                 attention
+
+now:
+token embedding
+     ↓
+Q/K generated
+     ↓
+RoPE rotates Q/K based on position
+     ↓
+attention
+
+RoPE is another real improvement.
+
+| Position method | Params | Time | VRAM | Best val |
+|---|---:|---:|---:|---:|
+| Learned positions | 5.56M | 695.6s | 845 MB | 0.7463 |
+| **RoPE** | **5.51M** | **658.0s** | 873 MB | **0.7280** |
+
+So RoPE gave us:
+- ~2.5% lower validation loss
+- slightly fewer parameters
+- faster training
+- slightly more VRAM
+- cleaner generation
+
+
 ## last tests output
 
 Note: for more output see git history.
@@ -278,61 +311,60 @@ Training bytes: 93,815,188
 Loading validation data...
 Validation bytes: 187,001
 
-Parameters: 5,561,728
+Parameters: 5,507,968
 
-    500: train=1.4608  val=1.3970
+    500: train=1.1795  val=1.1196
        saved best_model.pt
-   1000: train=1.2195  val=1.1160
+   1000: train=1.0372  val=0.9874
        saved best_model.pt
-   1500: train=1.0369  val=1.0375
+   1500: train=0.9918  val=0.9222
        saved best_model.pt
-   2000: train=1.0092  val=0.9664
+   2000: train=0.9645  val=0.8894
        saved best_model.pt
-   2500: train=0.9516  val=0.9257
+   2500: train=0.8808  val=0.8526
        saved best_model.pt
-   3000: train=0.9638  val=0.8924
+   3000: train=0.9242  val=0.8475
        saved best_model.pt
-   3500: train=0.9306  val=0.8690
+   3500: train=0.8721  val=0.8142
        saved best_model.pt
-   4000: train=0.8908  val=0.8454
+   4000: train=0.8105  val=0.8087
        saved best_model.pt
-   4500: train=0.9035  val=0.8366
+   4500: train=0.8546  val=0.7955
        saved best_model.pt
-   5000: train=0.8332  val=0.8143
+   5000: train=0.8525  val=0.7918
        saved best_model.pt
-   5500: train=0.8963  val=0.8124
+   5500: train=0.7819  val=0.7825
        saved best_model.pt
-   6000: train=0.8909  val=0.7978
+   6000: train=0.8405  val=0.7768
        saved best_model.pt
-   6500: train=0.8313  val=0.7863
+   6500: train=0.8406  val=0.7544
        saved best_model.pt
-   7000: train=0.8560  val=0.7874
-   7500: train=0.8432  val=0.7711
+   7000: train=0.8393  val=0.7621
+   7500: train=0.8008  val=0.7694
+   8000: train=0.8515  val=0.7497
        saved best_model.pt
-   8000: train=0.7744  val=0.7657
+   8500: train=0.7952  val=0.7540
+   9000: train=0.7568  val=0.7325
        saved best_model.pt
-   8500: train=0.8244  val=0.7514
-       saved best_model.pt
-   9000: train=0.8267  val=0.7535
-   9500: train=0.7997  val=0.7555
-  10000: train=0.8045  val=0.7463
+   9500: train=0.8282  val=0.7370
+  10000: train=0.7708  val=0.7280
        saved best_model.pt
 Saved last_model.pt
 
 ------------------------------
 Results
 ------------------------------
-Parameters:      5,561,728
+Parameters:      5,507,968
 Training bytes:  40,960,000
-Training time:   695.64s
-Peak VRAM:       845.3 MB
-Bytes/sec:       58,881
-Best val loss:   0.7463
-Using checkpoint from step 10000 (val=0.7463)
+Training time:   658.02s
+Peak VRAM:       873.2 MB
+Bytes/sec:       62,247
+Best val loss:   0.7280
+Using checkpoint from step 10000 (val=0.7280)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little boy named Timmy. Timmy loved to play outside in the sunshine. One day, Timmy went to the park to play with his friends. They played with the ball all day long. Timmy was so excite
+Once upon a time, there was a little girl named Lily. She loved to play with her toys and run around the park. One day, she went to the park to play with her friends. She saw a big tree with a big smile on her face.
 ```

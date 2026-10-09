@@ -1,5 +1,9 @@
+import math
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 
 class SwiGLU(nn.Module):
     def __init__(self, dim):
@@ -13,21 +17,152 @@ class SwiGLU(nn.Module):
 
     def forward(self, x):
         return self.down(
-            torch.nn.functional.silu(self.gate(x))
+            F.silu(self.gate(x))
             * self.up(x)
         )
 
 
-class TransformerBlock(nn.Module):
+def apply_rope(x):
+    """
+    x shape:
+        [batch, heads, sequence, head_dim]
+    """
+
+    batch, heads, seq_len, head_dim = x.shape
+
+    assert head_dim % 2 == 0
+
+    half_dim = head_dim // 2
+
+    positions = torch.arange(
+        seq_len,
+        device=x.device,
+        dtype=torch.float32,
+    )
+
+    frequencies = 1.0 / (
+        10000
+        ** (
+            torch.arange(
+                0,
+                half_dim,
+                device=x.device,
+                dtype=torch.float32,
+            )
+            / half_dim
+        )
+    )
+
+    angles = positions[:, None] * frequencies[None, :]
+
+    cos = angles.cos()[None, None, :, :]
+    sin = angles.sin()[None, None, :, :]
+
+    x1 = x[..., :half_dim]
+    x2 = x[..., half_dim:]
+
+    rotated = torch.cat(
+        [
+            x1 * cos - x2 * sin,
+            x1 * sin + x2 * cos,
+        ],
+        dim=-1,
+    )
+
+    return rotated.to(x.dtype)
+
+
+class Attention(nn.Module):
     def __init__(self, dim=128, heads=4):
+        super().__init__()
+
+        assert dim % heads == 0
+
+        self.heads = heads
+        self.head_dim = dim // heads
+
+        self.qkv = nn.Linear(
+            dim,
+            dim * 3,
+            bias=False,
+        )
+
+        self.output = nn.Linear(
+            dim,
+            dim,
+            bias=False,
+        )
+
+    def forward(self, x):
+        batch, length, dim = x.shape
+
+        qkv = self.qkv(x)
+
+        q, k, v = qkv.chunk(
+            3,
+            dim=-1,
+        )
+
+        q = q.view(
+            batch,
+            length,
+            self.heads,
+            self.head_dim,
+        ).transpose(1, 2)
+
+        k = k.view(
+            batch,
+            length,
+            self.heads,
+            self.head_dim,
+        ).transpose(1, 2)
+
+        v = v.view(
+            batch,
+            length,
+            self.heads,
+            self.head_dim,
+        ).transpose(1, 2)
+
+        # RoPE applies to queries and keys
+        q = apply_rope(q)
+        k = apply_rope(k)
+
+        # PyTorch handles causal masking internally.
+        x = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            is_causal=True,
+        )
+
+        x = x.transpose(
+            1,
+            2,
+        ).contiguous()
+
+        x = x.view(
+            batch,
+            length,
+            dim,
+        )
+
+        return self.output(x)
+
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        dim=128,
+        heads=4,
+    ):
         super().__init__()
 
         self.norm1 = nn.RMSNorm(dim)
 
-        self.attn = nn.MultiheadAttention(
-            embed_dim=dim,
-            num_heads=heads,
-            batch_first=True,
+        self.attn = Attention(
+            dim,
+            heads,
         )
 
         self.norm2 = nn.RMSNorm(dim)
@@ -35,35 +170,13 @@ class TransformerBlock(nn.Module):
         self.mlp = SwiGLU(dim)
 
     def forward(self, x):
-        length = x.size(1)
-
-        # Causal mask:
-        # a position may only look at itself and earlier positions.
-        mask = torch.triu(
-            torch.ones(
-                length,
-                length,
-                device=x.device,
-                dtype=torch.bool,
-            ),
-            diagonal=1,
+        x = x + self.attn(
+            self.norm1(x)
         )
 
-        h = self.norm1(x)
-
-        attn_out, _ = self.attn(
-            h,
-            h,
-            h,
-            attn_mask=mask,
-            need_weights=False,
+        x = x + self.mlp(
+            self.norm2(x)
         )
-
-        # Residual connection
-        x = x + attn_out
-
-        # Feed-forward network + residual connection
-        x = x + self.mlp(self.norm2(x))
 
         return x
 
@@ -78,15 +191,15 @@ class TinyLM(nn.Module):
     ):
         super().__init__()
 
+        # max_context is kept in the API so main.py
+        # does not need to change.
+        # RoPE itself has no learned position table.
+
+        self.max_context = max_context
+
         # Byte values 0..255 -> learned vectors
         self.token_embedding = nn.Embedding(
             256,
-            dim,
-        )
-
-        # Learned position vectors
-        self.position_embedding = nn.Embedding(
-            max_context,
             dim,
         )
 
@@ -98,14 +211,13 @@ class TinyLM(nn.Module):
             TransformerBlock(dim, heads),
         ])
 
-        # With recurrent_steps=2:
+        # recurrent_steps=2:
+        #
         # A -> B -> C -> A -> B -> C
         self.recurrent_steps = recurrent_steps
 
         self.norm = nn.RMSNorm(dim)
 
-        # Convert internal vector back into
-        # probabilities/scores for 256 possible bytes.
         self.output = nn.Linear(
             dim,
             256,
@@ -114,15 +226,14 @@ class TinyLM(nn.Module):
     def forward(self, tokens):
         _, length = tokens.shape
 
-        positions = torch.arange(
-            length,
-            device=tokens.device,
-        )
+        if length > self.max_context:
+            raise ValueError(
+                f"Sequence length {length} exceeds "
+                f"max_context {self.max_context}"
+            )
 
-        x = (
-            self.token_embedding(tokens)
-            + self.position_embedding(positions)
-        )
+        # No position embedding anymore.
+        x = self.token_embedding(tokens)
 
         for _ in range(self.recurrent_steps):
             for block in self.blocks:
