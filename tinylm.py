@@ -48,7 +48,10 @@ class TinyLM(nn.Module):
         self.token_embedding = nn.Embedding(256, dim)
         self.position_embedding = nn.Embedding(max_context, dim)
 
-        self.block = TransformerBlock(dim, heads)
+        self.blocks = nn.ModuleList([
+            TransformerBlock(dim, heads)
+            for _ in range(4)
+        ])
 
         self.norm = nn.LayerNorm(dim)
         self.output = nn.Linear(dim, 256)
@@ -66,7 +69,8 @@ class TinyLM(nn.Module):
             + self.position_embedding(positions)
         )
 
-        x = self.block(x)
+        for block in self.blocks:
+            x = block(x)
         x = self.norm(x)
 
         return self.output(x)

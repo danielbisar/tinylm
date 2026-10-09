@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-
+import time
 from tinylm import TinyLM
 
 
@@ -28,7 +28,9 @@ model = TinyLM(
 ).to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
-
+parameters = sum(p.numel() for p in model.parameters())
+torch.cuda.reset_peak_memory_stats()
+start_time = time.perf_counter()
 
 for step in range(1000):
     start = torch.randint(
@@ -55,6 +57,16 @@ for step in range(1000):
 
     if step % 100 == 0:
         print(f"{step}: loss={loss.item():.4f}")
+
+torch.cuda.synchronize()
+elapsed = time.perf_counter() - start_time
+
+peak_vram = torch.cuda.max_memory_allocated() / 1024**2
+
+print(f"\nParameters:    {parameters:,}")
+print(f"Training time: {elapsed:.2f}s")
+print(f"Peak VRAM:     {peak_vram:.1f} MB")
+print(f"Steps/sec:     {1000 / elapsed:.1f}")
 
 def generate(model, prompt, max_new_bytes=100):
     model.eval()

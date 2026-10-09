@@ -19,22 +19,35 @@ F --> G["MLP"]
 G --> H["next-byte prediction"]
 ```
 
+use more transformers
+
+```mermaid
+flowchart LR
+A["bytes + position"] --> B["Block 1"]
+B --> C["Block 2"]
+C --> D["Block 3"]
+D --> E["Block 4"]
+E --> F["output"]
+```
+
 # run
 
 ```
 python main.py
-0: loss=5.7110
-100: loss=1.2990
-200: loss=0.9398
-300: loss=0.7961
-400: loss=0.6090
-500: loss=0.4653
-600: loss=0.2785
-700: loss=0.2281
-800: loss=0.2786
-900: loss=0.2300
+0: loss=5.7992
+100: loss=0.9663
+200: loss=0.8042
+300: loss=0.4229
+400: loss=0.2531
+500: loss=0.1092
+600: loss=0.1075
+700: loss=0.1189
+800: loss=0.0412
+900: loss=0.1080
 the cat likes milk.
 the dog likes food.
-the cat sat on the milk.
-the dog sat sathe og sat sat on the t the
+
+the cat sat on the mat.
+the dog sat on the flooor.
+the cat likes m
 ```
