@@ -19,10 +19,16 @@ data = torch.tensor(
     device=device,
 )
 
-model = TinyLM().to(device)
+context = 64
+
+model = TinyLM(
+    dim=128,
+    heads=4,
+    max_context=context,
+).to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
-context = 64
+
 
 for step in range(1000):
     start = torch.randint(
