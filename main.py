@@ -1,5 +1,4 @@
 import time
-
 import torch
 import torch.nn.functional as F
 from datasets import load_dataset
@@ -7,34 +6,22 @@ from datasets import load_dataset
 from tinylm import TinyLM
 
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 # --------------------------------------------------
 # Configuration
 # --------------------------------------------------
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
 context = 128
 batch_size = 32
+steps = 10000
 
 dim = 384
 heads = 4
 recurrent_steps = 2
 
-# Previous experiment:
-#
-# 20,000 steps * batch 1 * 128 bytes
-# = 2,560,000 training bytes
-#
-# New experiment:
-#
-# 625 steps * batch 32 * 128 bytes
-# = 2,560,000 training bytes
-#
-# So both runs see approximately the same amount
-# of training data.
-
-steps = 5000
-print_every_x_steps = 500
+validate_every = 500
+validation_batches = 20
 
 torch.manual_seed(42)
 
@@ -45,12 +32,13 @@ print(f"Device:     {device}")
 print(f"Context:    {context}")
 print(f"Batch size: {batch_size}")
 print(f"Steps:      {steps}")
-print(f"Print every x steps: {print_every_x_steps}")
+print(f"Validate every x steps: {validate_every}")
+print(f"Validate batches: {validation_batches}")
 print()
 
 
 # --------------------------------------------------
-# Load training data
+# Data
 # --------------------------------------------------
 
 print("Loading training data...")
@@ -60,24 +48,15 @@ train_dataset = load_dataset(
     split="train[:1%]",
 )
 
-train_text = "\n".join(
-    train_dataset["text"]
-)
+train_text = "\n".join(train_dataset["text"])
 
-# Keep entire dataset in CPU RAM.
 train_data = torch.tensor(
     list(train_text.encode("utf-8")),
     dtype=torch.long,
 )
 
-print(
-    f"Training bytes: {len(train_data):,}"
-)
+print(f"Training bytes: {len(train_data):,}")
 
-
-# --------------------------------------------------
-# Load validation data
-# --------------------------------------------------
 
 print("Loading validation data...")
 
@@ -86,24 +65,19 @@ validation_dataset = load_dataset(
     split="validation[:1%]",
 )
 
-validation_text = "\n".join(
-    validation_dataset["text"]
-)
+validation_text = "\n".join(validation_dataset["text"])
 
 validation_data = torch.tensor(
     list(validation_text.encode("utf-8")),
     dtype=torch.long,
 )
 
-print(
-    f"Validation bytes: {len(validation_data):,}"
-)
-
+print(f"Validation bytes: {len(validation_data):,}")
 print()
 
 
 # --------------------------------------------------
-# Create model
+# Model
 # --------------------------------------------------
 
 model = TinyLM(
@@ -128,7 +102,7 @@ print()
 
 
 # --------------------------------------------------
-# Create a random batch
+# Batch creation
 # --------------------------------------------------
 
 def get_batch(data, batch_size):
@@ -139,25 +113,16 @@ def get_batch(data, batch_size):
     )
 
     x = torch.stack([
-        data[
-            int(start):
-            int(start) + context
-        ]
+        data[int(start):int(start) + context]
         for start in starts
     ])
 
     y = torch.stack([
-        data[
-            int(start) + 1:
-            int(start) + context + 1
-        ]
+        data[int(start) + 1:int(start) + context + 1]
         for start in starts
     ])
 
-    return (
-        x.to(device),
-        y.to(device),
-    )
+    return x.to(device), y.to(device)
 
 
 # --------------------------------------------------
@@ -165,16 +130,12 @@ def get_batch(data, batch_size):
 # --------------------------------------------------
 
 @torch.no_grad()
-def validation_loss(
-    model,
-    data,
-    batches=20,
-):
+def validation_loss(model, data):
     model.eval()
 
     losses = []
 
-    for _ in range(batches):
+    for _ in range(validation_batches):
         x, y = get_batch(
             data,
             batch_size,
@@ -187,9 +148,7 @@ def validation_loss(
             y.reshape(-1),
         )
 
-        losses.append(
-            loss.item()
-        )
+        losses.append(loss.item())
 
     model.train()
 
@@ -200,6 +159,8 @@ def validation_loss(
 # Training
 # --------------------------------------------------
 
+best_val_loss = float("inf")
+
 if device == "cuda":
     torch.cuda.reset_peak_memory_stats()
 
@@ -207,7 +168,7 @@ start_time = time.perf_counter()
 
 model.train()
 
-for step in range(steps):
+for step in range(1, steps + 1):
     x, y = get_batch(
         train_data,
         batch_size,
@@ -225,14 +186,65 @@ for step in range(steps):
     )
 
     loss.backward()
-
     optimizer.step()
 
-    if step % print_every_x_steps == 0:
+    # ----------------------------------------------
+    # Periodic validation
+    # ----------------------------------------------
+
+    if step % validate_every == 0:
+        val_loss = validation_loss(
+            model,
+            validation_data,
+        )
+
         print(
             f"{step:7d}: "
-            f"train loss={loss.item():.4f}"
+            f"train={loss.item():.4f}  "
+            f"val={val_loss:.4f}"
         )
+
+        # Save best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "step": step,
+                    "validation_loss": val_loss,
+                    "config": {
+                        "dim": dim,
+                        "heads": heads,
+                        "context": context,
+                        "recurrent_steps": recurrent_steps,
+                    },
+                },
+                "best_model.pt",
+            )
+
+            print("       saved best_model.pt")
+
+
+
+torch.save(
+    {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "step": steps,
+        "config": {
+            "dim": dim,
+            "heads": heads,
+            "context": context,
+            "recurrent_steps": recurrent_steps,
+        },
+    },
+    "last_model.pt",
+)
+
+print("Saved last_model.pt")
+
 
 
 # --------------------------------------------------
@@ -242,10 +254,7 @@ for step in range(steps):
 if device == "cuda":
     torch.cuda.synchronize()
 
-elapsed = (
-    time.perf_counter()
-    - start_time
-)
+elapsed = time.perf_counter() - start_time
 
 if device == "cuda":
     peak_vram = (
@@ -254,17 +263,6 @@ if device == "cuda":
     )
 else:
     peak_vram = 0
-
-
-# --------------------------------------------------
-# Final validation
-# --------------------------------------------------
-
-val_loss = validation_loss(
-    model,
-    validation_data,
-)
-
 
 training_bytes = (
     steps
@@ -283,39 +281,31 @@ print("------------------------------")
 print("Results")
 print("------------------------------")
 
-print(
-    f"Parameters:        "
-    f"{parameters:,}"
+print(f"Parameters:      {parameters:,}")
+print(f"Training bytes:  {training_bytes:,}")
+print(f"Training time:   {elapsed:.2f}s")
+print(f"Peak VRAM:       {peak_vram:.1f} MB")
+print(f"Bytes/sec:       {bytes_per_second:,.0f}")
+print(f"Best val loss:   {best_val_loss:.4f}")
+
+
+# --------------------------------------------------
+# Load best checkpoint before generation
+# --------------------------------------------------
+
+checkpoint = torch.load(
+    "best_model.pt",
+    map_location=device,
+)
+
+model.load_state_dict(
+    checkpoint["model"]
 )
 
 print(
-    f"Training bytes:    "
-    f"{training_bytes:,}"
-)
-
-print(
-    f"Training time:     "
-    f"{elapsed:.2f}s"
-)
-
-print(
-    f"Peak VRAM:         "
-    f"{peak_vram:.1f} MB"
-)
-
-print(
-    f"Steps/sec:         "
-    f"{steps / elapsed:.2f}"
-)
-
-print(
-    f"Bytes/sec:         "
-    f"{bytes_per_second:,.0f}"
-)
-
-print(
-    f"Validation loss:   "
-    f"{val_loss:.4f}"
+    f"Using checkpoint from step "
+    f"{checkpoint['step']} "
+    f"(val={checkpoint['validation_loss']:.4f})"
 )
 
 
@@ -332,33 +322,18 @@ def generate(
     model.eval()
 
     x = torch.tensor(
-        list(
-            prompt.encode("utf-8")
-        ),
+        list(prompt.encode("utf-8")),
         dtype=torch.long,
         device=device,
     ).unsqueeze(0)
 
     for _ in range(max_new_bytes):
-        # Model can only see the latest
-        # `context` bytes.
-        x_context = x[
-            :,
-            -context:
-        ]
+        x_context = x[:, -context:]
 
-        logits = model(
-            x_context
-        )
+        logits = model(x_context)
 
-        # Prediction at final position
-        next_logits = logits[
-            :,
-            -1,
-            :
-        ]
+        next_logits = logits[:, -1, :]
 
-        # Greedy decoding for now
         next_byte = torch.argmax(
             next_logits,
             dim=-1,
@@ -366,10 +341,7 @@ def generate(
         )
 
         x = torch.cat(
-            [
-                x,
-                next_byte,
-            ],
+            [x, next_byte],
             dim=1,
         )
 

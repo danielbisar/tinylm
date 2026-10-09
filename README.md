@@ -199,16 +199,36 @@ The generated text is also much better:
 That’s now coherent enough that architecture comparisons become more meaningful.
 The next thing I’d do is not change the architecture yet. Keep this exact setup and add checkpointing + periodic validation, for example every 500 steps, so we can see whether the model is still improving at 5000 or already starting to plateau.
 
+# ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384 + add checkpointing + periodic validation
+
+looks good, continuus improvment
+
+## same setup but 10000 steps of training
+
+This looks good, and now we can see the curve starting to flatten.
+Key points:
+- Best validation loss improved from 0.8570 at 5k steps to 0.7820 at 9.5k.
+- Improvement after ~8k is much slower.
+- 10k is slightly worse than 9.5k, so saving the best checkpoint was useful.
+- Generation is much more coherent than before.
+So I would not just keep training this exact setup indefinitely.
+Best next experiment: keep the same model and training setup, but increase the dataset from train[:1%] to maybe train[:5%].
+
+why: current model has now seen ~41M sampled bytes
+training corpus only contains ~19M unique bytes
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
- python main.py
+python main.py
 Device:     cuda
 Context:    128
 Batch size: 32
-Steps:      5000
+Steps:      10000
+Validate every x steps: 500
+Validate batches: 20
 
 Loading training data...
 Training bytes: 18,999,960
@@ -217,31 +237,59 @@ Validation bytes: 187,001
 
 Parameters: 5,570,176
 
-   0: train loss=5.6999
- 500: train loss=1.5526
-1000: train loss=1.2585
-1500: train loss=1.1431
-2000: train loss=1.0947
-2500: train loss=0.9670
-3000: train loss=0.9482
-3500: train loss=0.9217
-4000: train loss=0.9078
-4500: train loss=0.9636
+    500: train=1.4767  val=1.4665
+       saved best_model.pt
+   1000: train=1.2075  val=1.1927
+       saved best_model.pt
+   1500: train=1.1672  val=1.0918
+       saved best_model.pt
+   2000: train=1.0882  val=1.0225
+       saved best_model.pt
+   2500: train=1.1062  val=0.9763
+       saved best_model.pt
+   3000: train=0.9488  val=0.9548
+       saved best_model.pt
+   3500: train=0.9535  val=0.9257
+       saved best_model.pt
+   4000: train=0.9422  val=0.9012
+       saved best_model.pt
+   4500: train=0.8149  val=0.8718
+       saved best_model.pt
+   5000: train=0.9033  val=0.8570
+       saved best_model.pt
+   5500: train=0.8864  val=0.8588
+   6000: train=0.9447  val=0.8324
+       saved best_model.pt
+   6500: train=0.9058  val=0.8240
+       saved best_model.pt
+   7000: train=0.8753  val=0.8207
+       saved best_model.pt
+   7500: train=0.8472  val=0.8163
+       saved best_model.pt
+   8000: train=0.8380  val=0.7883
+       saved best_model.pt
+   8500: train=0.8113  val=0.7947
+   9000: train=0.8790  val=0.7831
+       saved best_model.pt
+   9500: train=0.8001  val=0.7820
+       saved best_model.pt
+  10000: train=0.8291  val=0.7847
+Saved last_model.pt
 
 ------------------------------
 Results
 ------------------------------
-Parameters:        5,570,176
-Training bytes:    20,480,000
-Training time:     328.62s
-Peak VRAM:         745.4 MB
-Steps/sec:         15.22
-Bytes/sec:         62,321
-Validation loss:   0.8539
+Parameters:      5,570,176
+Training bytes:  40,960,000
+Training time:   670.40s
+Peak VRAM:       745.4 MB
+Bytes/sec:       61,098
+Best val loss:   0.7820
+Using checkpoint from step 9500 (val=0.7820)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little girl named Lily. She loved to play outside in the garden and saw a big box in the sky. One day, she saw a big box on the ground. She wanted to go to the boat and said, "I want to
+Once upon a time, there was a little girl named Lily. She loved to play outside in the park with her friends. One day, Lily was playing with her toys in the park. She wanted to see what was inside the water was and s
 ```
