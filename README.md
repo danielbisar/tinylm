@@ -34,18 +34,12 @@ E --> F["output"]
 # run
 
 ```
-OLD:
-
-Block A → Block B → Block C → Block D
-different weights
-
-
-NEW:
-
-Block A → Block A → Block A → Block A
-same weights
+A → B → C → D       867k parameters
+A → A → A → A       272k parameters
+A → B → A → B       expected ~471k parameters
 ```
 
+## simple recursion
 ```
 This is a useful result.
 Model	Params	VRAM	Time	Val loss
@@ -61,25 +55,35 @@ So recurrence gave us:
 That is actually promising.
 ```
 
+## 2 blocks each used 2 times
+
+```
+So compared with 4 unique blocks, A→B→A→B uses about 46% fewer parameters and ~21% less VRAM, while validation loss only worsens from 1.2925 to 1.3403.
+
+The repetitive generation is still a weakness, but that affects all these tiny models.
+```
+
+## output
+
 
 ```
 python main.py
-0: train loss=5.5450
-2000: train loss=2.3228
-4000: train loss=1.8331
-6000: train loss=2.1531
-8000: train loss=1.4411
-10000: train loss=2.2241
-12000: train loss=1.6574
-14000: train loss=1.6200
-16000: train loss=1.2873
-18000: train loss=1.3584
+0: train loss=5.5448
+2000: train loss=1.9528
+4000: train loss=1.9741
+6000: train loss=1.7443
+8000: train loss=1.6531
+10000: train loss=1.6619
+12000: train loss=1.2539
+14000: train loss=1.7397
+16000: train loss=1.3120
+18000: train loss=1.3331
 
-Parameters:      272,512
-Training time:   141.00s
-Peak VRAM:       23.0 MB
-Steps/sec:       141.8
-Validation loss: 1.4159
+Parameters:      470,784
+Training time:   138.58s
+Peak VRAM:       26.0 MB
+Steps/sec:       144.3
+Validation loss: 1.3403
 
-Once upon a time, there was and said the walked to the boar and her mom and her mom and her mom and her mom and her mom and her mom and her mom and her mom and her mom and her mom and her mom and her mom and her mom
+Once upon a time, there was a big bird bird and said, "I wantill to the boor a big bird for and said, "It wanted to the boor a big bird and said, "It wanted to the boor a big bird and said, "Itwanted to the boor a b
 ```

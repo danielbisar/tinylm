@@ -26,11 +26,7 @@ class TransformerBlock(nn.Module):
         length = x.size(1)
 
         mask = torch.triu(
-            torch.ones(
-                length,
-                length,
-                device=x.device,
-            ),
+            torch.ones(length, length, device=x.device),
             diagonal=1,
         ).bool()
 
@@ -55,37 +51,26 @@ class TinyLM(nn.Module):
         dim=128,
         heads=4,
         max_context=128,
-        recurrent_steps=4,
+        recurrent_steps=2,
     ):
         super().__init__()
 
-        self.token_embedding = nn.Embedding(
-            256,
-            dim,
-        )
+        self.token_embedding = nn.Embedding(256, dim)
+        self.position_embedding = nn.Embedding(max_context, dim)
 
-        self.position_embedding = nn.Embedding(
-            max_context,
-            dim,
-        )
-
-        # Only ONE block
-        self.block = TransformerBlock(
-            dim,
-            heads,
-        )
+        # TWO unique blocks
+        self.blocks = nn.ModuleList([
+            TransformerBlock(dim, heads),
+            TransformerBlock(dim, heads),
+        ])
 
         self.recurrent_steps = recurrent_steps
 
         self.norm = nn.LayerNorm(dim)
-
-        self.output = nn.Linear(
-            dim,
-            256,
-        )
+        self.output = nn.Linear(dim, 256)
 
     def forward(self, tokens):
-        batch, length = tokens.shape
+        _, length = tokens.shape
 
         positions = torch.arange(
             length,
@@ -97,9 +82,10 @@ class TinyLM(nn.Module):
             + self.position_embedding(positions)
         )
 
-        # Reuse the SAME block 4 times
+        # A -> B -> A -> B
         for _ in range(self.recurrent_steps):
-            x = self.block(x)
+            for block in self.blocks:
+                x = block(x)
 
         x = self.norm(x)
 
