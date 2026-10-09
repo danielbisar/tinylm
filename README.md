@@ -2,6 +2,7 @@ py -m venv .venv
 .venv\Scripts\activate.ps1
 pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu132
 pip install numpy
+pip install datasets
 
 #verify
 python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0)); print(torch.cuda.is_available())"
