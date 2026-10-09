@@ -34,21 +34,23 @@ E --> F["output"]
 # run
 
 ```
-python main.py
-0: loss=5.7992
-100: loss=0.9663
-200: loss=0.8042
-300: loss=0.4229
-400: loss=0.2531
-500: loss=0.1092
-600: loss=0.1075
-700: loss=0.1189
-800: loss=0.0412
-900: loss=0.1080
-the cat likes milk.
-the dog likes food.
+> python main.py
+0: train loss=5.7241
+2000: train loss=2.2621
+4000: train loss=1.8558
+6000: train loss=1.8039
+8000: train loss=1.7516
+10000: train loss=1.7851
+12000: train loss=2.1371
+14000: train loss=1.2514
+16000: train loss=1.3470
+18000: train loss=1.3974
 
-the cat sat on the mat.
-the dog sat on the flooor.
-the cat likes m
+Parameters:      867,328
+Training time:   140.86s
+Peak VRAM:       32.9 MB
+Steps/sec:       142.0
+Validation loss: 1.2925
+
+Once upon a time, there was a big boy named Lily. She was so happy to the started to the started to the started to the started to the started to the started to the started to the started to thestarted to the started
 ```

@@ -108,7 +108,7 @@ def validation_loss(model, data, samples=100):
 # Training
 # -------------------------
 
-steps = 1000
+steps = 20000
 
 if device == "cuda":
     torch.cuda.reset_peak_memory_stats()
@@ -144,7 +144,7 @@ for step in range(steps):
 
     optimizer.step()
 
-    if step % 100 == 0:
+    if step % 2000 == 0:
         print(
             f"{step}: "
             f"train loss={loss.item():.4f}"
