@@ -82,7 +82,7 @@ class TinyLM(nn.Module):
             + self.position_embedding(positions)
         )
 
-        # A -> B -> A -> B
+        # A -> B -> A -> B ...
         for _ in range(self.recurrent_steps):
             for block in self.blocks:
                 x = block(x)

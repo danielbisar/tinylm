@@ -63,27 +63,38 @@ So compared with 4 unique blocks, A→B→A→B uses about 46% fewer parameters 
 The repetitive generation is still a weakness, but that affects all these tiny models.
 ```
 
+## 2 blockes each used 3 times
+
+| Model | Params | VRAM | Time | Val loss |
+|---|---:|---:|---:|---:|
+| 4 unique blocks | 867k | 32.9 MB | 141 s | **1.2925** |
+| A→B ×2 | 471k | 26.0 MB | 139 s | 1.3403 |
+| **A→B ×3** | **471k** | **27.2 MB** | **195 s** | **1.3039** |
+| A ×4 | 273k | 23.0 MB | 141 s | 1.4159 |
+
+I wouldn't worry much about the repetitive generated text yet. We're using greedy argmax, only 64 bytes of context, and a ~0.5M parameter model.
+
 ## output
 
 
 ```
 python main.py
-0: train loss=5.5448
-2000: train loss=1.9528
-4000: train loss=1.9741
-6000: train loss=1.7443
-8000: train loss=1.6531
-10000: train loss=1.6619
-12000: train loss=1.2539
-14000: train loss=1.7397
-16000: train loss=1.3120
-18000: train loss=1.3331
+0: train loss=5.6945
+2000: train loss=2.1614
+4000: train loss=1.6773
+6000: train loss=1.4923
+8000: train loss=1.5646
+10000: train loss=1.0479
+12000: train loss=1.3589
+14000: train loss=1.0987
+16000: train loss=1.0264
+18000: train loss=1.4341
 
 Parameters:      470,784
-Training time:   138.58s
-Peak VRAM:       26.0 MB
-Steps/sec:       144.3
-Validation loss: 1.3403
+Training time:   194.78s
+Peak VRAM:       27.2 MB
+Steps/sec:       102.7
+Validation loss: 1.3039
 
-Once upon a time, there was a big bird bird and said, "I wantill to the boor a big bird for and said, "It wanted to the boor a big bird and said, "It wanted to the boor a big bird and said, "Itwanted to the boor a b
+Once upon a time, there was a little girl named Lily. They looked to play with his for the started to play with his for the started to play with his for the started to play with his for the started to play with his f
 ```
