@@ -127,28 +127,36 @@ That should tell us whether the gains continue or start flattening.
 | 384 | 3.80M | 99.0 MB | **1.0384** |
 | 512 | 6.63M | 150.3 MB | **1.0321** |
 
+# dim=384, context=128, recurrent_steps=2, blocks=3
+
+| Design | Params | VRAM | Val loss |
+|---|---:|---:|---:|
+| 2 blocks ×3, dim 384 | 3.80M | 99 MB | 1.0384 |
+| 3 blocks ×2, dim 384 | 5.57M | 126 MB | **1.0097** |
+| 2 blocks ×3, dim 512 | 6.63M | 150 MB | 1.0321 |
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
 python main.py
-0: train loss=5.7910
-2000: train loss=1.9480
-4000: train loss=1.2916
-6000: train loss=1.2266
-8000: train loss=1.3717
-10000: train loss=1.1590
-12000: train loss=1.3125
-14000: train loss=1.3063
-16000: train loss=0.9314
-18000: train loss=1.0274
+0: train loss=5.7295
+2000: train loss=1.5075
+4000: train loss=1.7961
+6000: train loss=1.1258
+8000: train loss=1.8389
+10000: train loss=1.2745
+12000: train loss=1.1411
+14000: train loss=1.6141
+16000: train loss=1.1465
+18000: train loss=1.1620
 
-Parameters:      6,633,728
-Training time:   216.24s
-Peak VRAM:       150.3 MB
-Steps/sec:       92.5
-Validation loss: 1.0321
+Parameters:      5,570,176
+Training time:   218.61s
+Peak VRAM:       126.1 MB
+Steps/sec:       91.5
+Validation loss: 1.0097
 
-Once upon a time, there was a little girl named Lily. She loved to play with her mom and dad wanted to play with her mom and said, "What is it it?" They says, "You can have the store to the store to the book. They sa
+Once upon a time, there was a little girl named Lily. She loved to play with her friends. She was always sorry and her friends. She wanted to see the bear was a big box and have fun and the bear was so happy and they
 ```

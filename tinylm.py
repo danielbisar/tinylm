@@ -58,8 +58,9 @@ class TinyLM(nn.Module):
         self.token_embedding = nn.Embedding(256, dim)
         self.position_embedding = nn.Embedding(max_context, dim)
 
-        # TWO unique blocks
+        # 3 unique blocks
         self.blocks = nn.ModuleList([
+            TransformerBlock(dim, heads),
             TransformerBlock(dim, heads),
             TransformerBlock(dim, heads),
         ])

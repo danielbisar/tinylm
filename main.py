@@ -48,10 +48,10 @@ validation_data = torch.tensor(
 # -------------------------
 context = 128
 model = TinyLM(
-    dim=512,
+    dim=384,
     heads=4,
     max_context=context,
-    recurrent_steps=3,
+    recurrent_steps=2,
 ).to(device)
 
 optimizer = torch.optim.AdamW(
