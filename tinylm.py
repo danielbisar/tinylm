@@ -1,6 +1,22 @@
 import torch
 import torch.nn as nn
 
+class SwiGLU(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+
+        hidden = int(dim * 8 / 3)
+
+        self.gate = nn.Linear(dim, hidden, bias=False)
+        self.up = nn.Linear(dim, hidden, bias=False)
+        self.down = nn.Linear(hidden, dim, bias=False)
+
+    def forward(self, x):
+        return self.down(
+            torch.nn.functional.silu(self.gate(x))
+            * self.up(x)
+        )
+
 
 class TransformerBlock(nn.Module):
     def __init__(self, dim=128, heads=4):
@@ -16,11 +32,7 @@ class TransformerBlock(nn.Module):
 
         self.norm2 = nn.RMSNorm(dim)
 
-        self.mlp = nn.Sequential(
-            nn.Linear(dim, dim * 4),
-            nn.GELU(),
-            nn.Linear(dim * 4, dim),
-        )
+        self.mlp = SwiGLU(dim)
 
     def forward(self, x):
         length = x.size(1)

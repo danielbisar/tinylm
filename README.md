@@ -242,11 +242,30 @@ So: tiny improvement in speed/params, quality basically unchanged.
 That means RMSNorm is reasonable to keep, but it’s not a breakthrough.
 Next I’d test SwiGLU instead of the current GELU MLP. That changes the feed-forward part, which is a bigger architectural change and may matter more.
 
+# GELU MLP -> SwiGLU
+
+The flow changes from: Linear → GELU → Linear
+to:
+        ┌→ gate → SiLU ─┐
+input ──┤               × → down → output
+        └→ up ──────────┘
+
+SwiGLU is a real win here.
+
+| MLP | Params | Time | VRAM | Best val |
+|---|---:|---:|---:|---:|
+| GELU | 5.57M | 671.8s | 745 MB | 0.7821 |
+| **SwiGLU** | 5.56M | 695.6s | 845 MB | **0.7463** |
+
+So you gained about 4.6% lower validation loss for roughly the same parameter count, at the cost of ~13% more VRAM and slightly slower training.
+The generation sample also looks noticeably cleaner.
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
+python main.py
 Device:     cuda
 Context:    128
 Batch size: 32
@@ -259,61 +278,61 @@ Training bytes: 93,815,188
 Loading validation data...
 Validation bytes: 187,001
 
-Parameters: 5,567,488
+Parameters: 5,561,728
 
-    500: train=1.5183  val=1.4747
+    500: train=1.4608  val=1.3970
        saved best_model.pt
-   1000: train=1.2786  val=1.2016
+   1000: train=1.2195  val=1.1160
        saved best_model.pt
-   1500: train=1.1568  val=1.1026
+   1500: train=1.0369  val=1.0375
        saved best_model.pt
-   2000: train=1.1141  val=1.0290
+   2000: train=1.0092  val=0.9664
        saved best_model.pt
-   2500: train=1.0547  val=0.9753
+   2500: train=0.9516  val=0.9257
        saved best_model.pt
-   3000: train=0.9919  val=0.9553
+   3000: train=0.9638  val=0.8924
        saved best_model.pt
-   3500: train=0.9629  val=0.9246
+   3500: train=0.9306  val=0.8690
        saved best_model.pt
-   4000: train=0.9610  val=0.9085
+   4000: train=0.8908  val=0.8454
        saved best_model.pt
-   4500: train=0.9074  val=0.8789
+   4500: train=0.9035  val=0.8366
        saved best_model.pt
-   5000: train=0.9203  val=0.8629
+   5000: train=0.8332  val=0.8143
        saved best_model.pt
-   5500: train=0.8965  val=0.8626
+   5500: train=0.8963  val=0.8124
        saved best_model.pt
-   6000: train=0.8798  val=0.8326
+   6000: train=0.8909  val=0.7978
        saved best_model.pt
-   6500: train=0.8479  val=0.8273
+   6500: train=0.8313  val=0.7863
        saved best_model.pt
-   7000: train=0.8815  val=0.8155
+   7000: train=0.8560  val=0.7874
+   7500: train=0.8432  val=0.7711
        saved best_model.pt
-   7500: train=0.8656  val=0.8171
-   8000: train=0.8979  val=0.7923
+   8000: train=0.7744  val=0.7657
        saved best_model.pt
-   8500: train=0.8035  val=0.7939
-   9000: train=0.7854  val=0.7861
+   8500: train=0.8244  val=0.7514
        saved best_model.pt
-   9500: train=0.8224  val=0.7821
+   9000: train=0.8267  val=0.7535
+   9500: train=0.7997  val=0.7555
+  10000: train=0.8045  val=0.7463
        saved best_model.pt
-  10000: train=0.8490  val=0.7839
 Saved last_model.pt
 
 ------------------------------
 Results
 ------------------------------
-Parameters:      5,567,488
+Parameters:      5,561,728
 Training bytes:  40,960,000
-Training time:   671.82s
-Peak VRAM:       745.2 MB
-Bytes/sec:       60,969
-Best val loss:   0.7821
-Using checkpoint from step 9500 (val=0.7821)
+Training time:   695.64s
+Peak VRAM:       845.3 MB
+Bytes/sec:       58,881
+Best val loss:   0.7463
+Using checkpoint from step 10000 (val=0.7463)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little girl named Lily. She loved to play with her toys and eat cars and shells. One day, she was playing with her toys in the park. She had a big bag with a big smile on her face. She w
+Once upon a time, there was a little boy named Timmy. Timmy loved to play outside in the sunshine. One day, Timmy went to the park to play with his friends. They played with the ball all day long. Timmy was so excite
 ```
