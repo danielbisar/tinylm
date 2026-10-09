@@ -119,28 +119,36 @@ Wider model capacity is buying much more quality than longer context or extra re
 You still have enormous VRAM headroom, so I’d test dim=512, context=128, recurrent_steps=3 next.
 That should tell us whether the gains continue or start flattening.
 
+# context=128, dim=512, recurrent_steps=3
+
+| dim | Params | VRAM | Val loss |
+|---:|---:|---:|---:|
+| 256 | 1.74M | 57.7 MB | 1.1105 |
+| 384 | 3.80M | 99.0 MB | **1.0384** |
+| 512 | 6.63M | 150.3 MB | **1.0321** |
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
 python main.py
-0: train loss=5.6944
-2000: train loss=1.6248
-4000: train loss=1.6732
-6000: train loss=1.4804
-8000: train loss=1.3567
-10000: train loss=1.1909
-12000: train loss=1.3579
-14000: train loss=1.0142
-16000: train loss=1.0235
-18000: train loss=1.1158
+0: train loss=5.7910
+2000: train loss=1.9480
+4000: train loss=1.2916
+6000: train loss=1.2266
+8000: train loss=1.3717
+10000: train loss=1.1590
+12000: train loss=1.3125
+14000: train loss=1.3063
+16000: train loss=0.9314
+18000: train loss=1.0274
 
-Parameters:      3,795,712
-Training time:   204.99s
-Peak VRAM:       99.0 MB
-Steps/sec:       97.6
-Validation loss: 1.0384
+Parameters:      6,633,728
+Training time:   216.24s
+Peak VRAM:       150.3 MB
+Steps/sec:       92.5
+Validation loss: 1.0321
 
-Once upon a time, there was a little girl named Lily. She loved to play with her toys. One day, they went to the sun and they were so he wanted to see the sun with her family. They were happy and they were so happy.
+Once upon a time, there was a little girl named Lily. She loved to play with her mom and dad wanted to play with her mom and said, "What is it it?" They says, "You can have the store to the store to the book. They sa
 ```

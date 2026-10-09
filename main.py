@@ -8,8 +8,6 @@ from tinylm import TinyLM
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-context = 128
-
 
 # -------------------------
 # Load training data
@@ -48,9 +46,9 @@ validation_data = torch.tensor(
 # -------------------------
 # Create model
 # -------------------------
-
+context = 128
 model = TinyLM(
-    dim=384,
+    dim=512,
     heads=4,
     max_context=context,
     recurrent_steps=3,
