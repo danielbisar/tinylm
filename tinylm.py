@@ -25,10 +25,17 @@ class TransformerBlock(nn.Module):
     def forward(self, x):
         length = x.size(1)
 
+        # Causal mask:
+        # a position may only look at itself and earlier positions.
         mask = torch.triu(
-            torch.ones(length, length, device=x.device),
+            torch.ones(
+                length,
+                length,
+                device=x.device,
+                dtype=torch.bool,
+            ),
             diagonal=1,
-        ).bool()
+        )
 
         h = self.norm1(x)
 
@@ -37,9 +44,13 @@ class TransformerBlock(nn.Module):
             h,
             h,
             attn_mask=mask,
+            need_weights=False,
         )
 
+        # Residual connection
         x = x + attn_out
+
+        # Feed-forward network + residual connection
         x = x + self.mlp(self.norm2(x))
 
         return x
@@ -55,21 +66,38 @@ class TinyLM(nn.Module):
     ):
         super().__init__()
 
-        self.token_embedding = nn.Embedding(256, dim)
-        self.position_embedding = nn.Embedding(max_context, dim)
+        # Byte values 0..255 -> learned vectors
+        self.token_embedding = nn.Embedding(
+            256,
+            dim,
+        )
 
-        # 3 unique blocks
+        # Learned position vectors
+        self.position_embedding = nn.Embedding(
+            max_context,
+            dim,
+        )
+
+        # Three unique Transformer blocks:
+        # A -> B -> C
         self.blocks = nn.ModuleList([
-            TransformerBlock(dim, heads),
             TransformerBlock(dim, heads),
             TransformerBlock(dim, heads),
             TransformerBlock(dim, heads),
         ])
 
+        # With recurrent_steps=2:
+        # A -> B -> C -> A -> B -> C
         self.recurrent_steps = recurrent_steps
 
         self.norm = nn.LayerNorm(dim)
-        self.output = nn.Linear(dim, 256)
+
+        # Convert internal vector back into
+        # probabilities/scores for 256 possible bytes.
+        self.output = nn.Linear(
+            dim,
+            256,
+        )
 
     def forward(self, tokens):
         _, length = tokens.shape
@@ -84,7 +112,6 @@ class TinyLM(nn.Module):
             + self.position_embedding(positions)
         )
 
-        # A -> B -> A -> B ...
         for _ in range(self.recurrent_steps):
             for block in self.blocks:
                 x = block(x)

@@ -7,51 +7,108 @@ from datasets import load_dataset
 from tinylm import TinyLM
 
 
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# -------------------------
+context = 128
+batch_size = 32
+
+dim = 384
+heads = 4
+recurrent_steps = 2
+
+# Previous experiment:
+#
+# 20,000 steps * batch 1 * 128 bytes
+# = 2,560,000 training bytes
+#
+# New experiment:
+#
+# 625 steps * batch 32 * 128 bytes
+# = 2,560,000 training bytes
+#
+# So both runs see approximately the same amount
+# of training data.
+
+steps = 625
+
+torch.manual_seed(42)
+
+if device == "cuda":
+    torch.cuda.manual_seed_all(42)
+
+print(f"Device:     {device}")
+print(f"Context:    {context}")
+print(f"Batch size: {batch_size}")
+print(f"Steps:      {steps}")
+print()
+
+
+# --------------------------------------------------
 # Load training data
-# -------------------------
+# --------------------------------------------------
+
+print("Loading training data...")
 
 train_dataset = load_dataset(
     "roneneldan/TinyStories",
     split="train[:1%]",
 )
 
-train_text = "\n".join(train_dataset["text"])
+train_text = "\n".join(
+    train_dataset["text"]
+)
 
+# Keep entire dataset in CPU RAM.
 train_data = torch.tensor(
     list(train_text.encode("utf-8")),
     dtype=torch.long,
 )
 
+print(
+    f"Training bytes: {len(train_data):,}"
+)
 
-# -------------------------
+
+# --------------------------------------------------
 # Load validation data
-# -------------------------
+# --------------------------------------------------
+
+print("Loading validation data...")
 
 validation_dataset = load_dataset(
     "roneneldan/TinyStories",
     split="validation[:1%]",
 )
 
-validation_text = "\n".join(validation_dataset["text"])
+validation_text = "\n".join(
+    validation_dataset["text"]
+)
 
 validation_data = torch.tensor(
     list(validation_text.encode("utf-8")),
     dtype=torch.long,
 )
 
+print(
+    f"Validation bytes: {len(validation_data):,}"
+)
 
-# -------------------------
+print()
+
+
+# --------------------------------------------------
 # Create model
-# -------------------------
-context = 128
+# --------------------------------------------------
+
 model = TinyLM(
-    dim=384,
-    heads=4,
+    dim=dim,
+    heads=heads,
     max_context=context,
-    recurrent_steps=1,
+    recurrent_steps=recurrent_steps,
 ).to(device)
 
 optimizer = torch.optim.AdamW(
@@ -64,30 +121,62 @@ parameters = sum(
     for p in model.parameters()
 )
 
+print(f"Parameters: {parameters:,}")
+print()
 
-# -------------------------
+
+# --------------------------------------------------
+# Create a random batch
+# --------------------------------------------------
+
+def get_batch(data, batch_size):
+    starts = torch.randint(
+        0,
+        len(data) - context - 1,
+        (batch_size,),
+    )
+
+    x = torch.stack([
+        data[
+            int(start):
+            int(start) + context
+        ]
+        for start in starts
+    ])
+
+    y = torch.stack([
+        data[
+            int(start) + 1:
+            int(start) + context + 1
+        ]
+        for start in starts
+    ])
+
+    return (
+        x.to(device),
+        y.to(device),
+    )
+
+
+# --------------------------------------------------
 # Validation
-# -------------------------
+# --------------------------------------------------
 
 @torch.no_grad()
-def validation_loss(model, data, samples=100):
+def validation_loss(
+    model,
+    data,
+    batches=20,
+):
     model.eval()
 
     losses = []
 
-    for _ in range(samples):
-        start = torch.randint(
-            0,
-            len(data) - context - 1,
-            (1,),
-        ).item()
-
-        chunk = data[
-            start:start + context + 1
-        ].to(device)
-
-        x = chunk[:-1].unsqueeze(0)
-        y = chunk[1:].unsqueeze(0)
+    for _ in range(batches):
+        x, y = get_batch(
+            data,
+            batch_size,
+        )
 
         logits = model(x)
 
@@ -96,18 +185,18 @@ def validation_loss(model, data, samples=100):
             y.reshape(-1),
         )
 
-        losses.append(loss.item())
+        losses.append(
+            loss.item()
+        )
 
     model.train()
 
     return sum(losses) / len(losses)
 
 
-# -------------------------
+# --------------------------------------------------
 # Training
-# -------------------------
-
-steps = 20000
+# --------------------------------------------------
 
 if device == "cuda":
     torch.cuda.reset_peak_memory_stats()
@@ -117,18 +206,10 @@ start_time = time.perf_counter()
 model.train()
 
 for step in range(steps):
-    start = torch.randint(
-        0,
-        len(train_data) - context - 1,
-        (1,),
-    ).item()
-
-    chunk = train_data[
-        start:start + context + 1
-    ].to(device)
-
-    x = chunk[:-1].unsqueeze(0)
-    y = chunk[1:].unsqueeze(0)
+    x, y = get_batch(
+        train_data,
+        batch_size,
+    )
 
     logits = model(x)
 
@@ -137,27 +218,32 @@ for step in range(steps):
         y.reshape(-1),
     )
 
-    optimizer.zero_grad()
+    optimizer.zero_grad(
+        set_to_none=True,
+    )
 
     loss.backward()
 
     optimizer.step()
 
-    if step % 2000 == 0:
+    if step % 50 == 0:
         print(
-            f"{step}: "
+            f"{step:4d}: "
             f"train loss={loss.item():.4f}"
         )
 
 
-# -------------------------
+# --------------------------------------------------
 # Measurements
-# -------------------------
+# --------------------------------------------------
 
 if device == "cuda":
     torch.cuda.synchronize()
 
-elapsed = time.perf_counter() - start_time
+elapsed = (
+    time.perf_counter()
+    - start_time
+)
 
 if device == "cuda":
     peak_vram = (
@@ -168,9 +254,9 @@ else:
     peak_vram = 0
 
 
-# -------------------------
+# --------------------------------------------------
 # Final validation
-# -------------------------
+# --------------------------------------------------
 
 val_loss = validation_loss(
     model,
@@ -178,17 +264,62 @@ val_loss = validation_loss(
 )
 
 
+training_bytes = (
+    steps
+    * batch_size
+    * context
+)
+
+bytes_per_second = (
+    training_bytes
+    / elapsed
+)
+
+
 print()
-print(f"Parameters:      {parameters:,}")
-print(f"Training time:   {elapsed:.2f}s")
-print(f"Peak VRAM:       {peak_vram:.1f} MB")
-print(f"Steps/sec:       {steps / elapsed:.1f}")
-print(f"Validation loss: {val_loss:.4f}")
+print("------------------------------")
+print("Results")
+print("------------------------------")
+
+print(
+    f"Parameters:        "
+    f"{parameters:,}"
+)
+
+print(
+    f"Training bytes:    "
+    f"{training_bytes:,}"
+)
+
+print(
+    f"Training time:     "
+    f"{elapsed:.2f}s"
+)
+
+print(
+    f"Peak VRAM:         "
+    f"{peak_vram:.1f} MB"
+)
+
+print(
+    f"Steps/sec:         "
+    f"{steps / elapsed:.2f}"
+)
+
+print(
+    f"Bytes/sec:         "
+    f"{bytes_per_second:,.0f}"
+)
+
+print(
+    f"Validation loss:   "
+    f"{val_loss:.4f}"
+)
 
 
-# -------------------------
+# --------------------------------------------------
 # Generation
-# -------------------------
+# --------------------------------------------------
 
 @torch.no_grad()
 def generate(
@@ -199,18 +330,33 @@ def generate(
     model.eval()
 
     x = torch.tensor(
-        list(prompt.encode("utf-8")),
+        list(
+            prompt.encode("utf-8")
+        ),
         dtype=torch.long,
         device=device,
     ).unsqueeze(0)
 
     for _ in range(max_new_bytes):
-        x_context = x[:, -context:]
+        # Model can only see the latest
+        # `context` bytes.
+        x_context = x[
+            :,
+            -context:
+        ]
 
-        logits = model(x_context)
+        logits = model(
+            x_context
+        )
 
-        next_logits = logits[:, -1, :]
+        # Prediction at final position
+        next_logits = logits[
+            :,
+            -1,
+            :
+        ]
 
+        # Greedy decoding for now
         next_byte = torch.argmax(
             next_logits,
             dim=-1,
@@ -218,7 +364,10 @@ def generate(
         )
 
         x = torch.cat(
-            [x, next_byte],
+            [
+                x,
+                next_byte,
+            ],
             dim=1,
         )
 
@@ -231,8 +380,15 @@ def generate(
 
 
 print()
-print(generate(
-    model,
-    "Once upon a time",
-    200,
-))
+print("------------------------------")
+print("Generation")
+print("------------------------------")
+print()
+
+print(
+    generate(
+        model,
+        "Once upon a time",
+        200,
+    )
+)
