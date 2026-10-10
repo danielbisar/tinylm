@@ -33,6 +33,9 @@ E --> F["output"]
 
 # run
 
+Runs are from top to bottom. With the modified params as mentioned.
+All other params stay as the previous best run if not specified otherwise.
+
 ## simple recursion
 ```
 This is a useful result.
@@ -75,14 +78,14 @@ I wouldn't worry much about the repetitive generated text yet. We're using greed
 | A→B ×3 | 470,784 | 194.8s | 27.2 MB | **1.3039** |
 | A→B ×4 | 470,784 | 248.0s | 28.4 MB | 1.3072 |
 
-# context=128 instead of 64
+## context=128 instead of 64
 
 | Model | Context | Val loss | Time | VRAM |
 |---|---:|---:|---:|---:|
 | A→B ×3 | 64 | 1.3039 | 194.8s | 27.2 MB |
 | A→B ×3 | 128 | **1.2649** | 189.7s | 31.8 MB |
 
-# context=256 instead of 64
+## context=256 instead of 64
 
 The next thing I’d test is context 256 before touching experts or anything more complex. This experiment strongly suggests the model is still context-limited.
 
@@ -95,14 +98,14 @@ The next thing I’d test is context 256 before touching experts or anything mor
 So 128 → 256 gives only 0.003 better loss but costs ~37% more VRAM.
 I’d keep context 128 as the better efficiency point.
 
-# context=128, dim=256, recurrent_steps=3
+## context=128, dim=256, recurrent_steps=3
 
 | Model | Params | VRAM | Val loss |
 |---|---:|---:|---:|
 | dim 128, ctx 128, A→B ×3 | 479k | 31.8 MB | 1.2649 |
 | **dim 256, ctx 128, A→B ×3** | **1.74M** | **57.7 MB** | **1.1105** |
 
-# context=128, dim=384, recurrent_steps=3
+## context=128, dim=384, recurrent_steps=3
 
 This is another clear gain.
 | dim | Params | VRAM | Val loss |
@@ -119,7 +122,7 @@ Wider model capacity is buying much more quality than longer context or extra re
 You still have enormous VRAM headroom, so I’d test dim=512, context=128, recurrent_steps=3 next.
 That should tell us whether the gains continue or start flattening.
 
-# context=128, dim=512, recurrent_steps=3
+## context=128, dim=512, recurrent_steps=3
 
 | dim | Params | VRAM | Val loss |
 |---:|---:|---:|---:|
@@ -127,7 +130,7 @@ That should tell us whether the gains continue or start flattening.
 | 384 | 3.80M | 99.0 MB | **1.0384** |
 | 512 | 6.63M | 150.3 MB | **1.0321** |
 
-# dim=384, context=128, recurrent_steps=2, blocks=3
+## dim=384, context=128, recurrent_steps=2, blocks=3
 
 | Design | Params | VRAM | Val loss |
 |---|---:|---:|---:|
@@ -139,7 +142,7 @@ So adding more unique blocks helped more than just increasing width.
 The generation also looks cleaner.
 That suggests our current bottleneck is more likely unique model capacity, not extra recurrent depth.
 
-# dim=384, context=128, recurrent_steps=1, blocks=4
+## dim=384, context=128, recurrent_steps=1, blocks=4
 
 That gives only 4 block applications instead of 6, but more unique parameters. It will tell us whether recurrence is actually buying us anything at this scale.
 
@@ -158,7 +161,7 @@ For your RTX 3060, that trade is attractive because we have much more compute he
 I’d keep 3 unique blocks ×2 as our current baseline.
 The next thing I’d change is probably the training setup rather than architecture: use a batch larger than 1. Right now each update learns from only one 128-byte sequence, which makes those training-loss numbers jump around a lot and wastes GPU parallelism.
 
-# change impl to use random chunks=32
+## change impl to use random chunks=32
 
 But look at throughput
 Old 3 blocks ×2 run:
@@ -186,7 +189,7 @@ And from now on, we should keep batch size fixed when comparing architectures. T
 
 One other useful observation: your training loss with batch 32 is beautifully smooth
 
-# ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384
+## ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384
 
 | Setup | Training bytes | Time | Val loss |
 |---|---:|---:|---:|
@@ -199,11 +202,11 @@ The generated text is also much better:
 That’s now coherent enough that architecture comparisons become more meaningful.
 The next thing I’d do is not change the architecture yet. Keep this exact setup and add checkpointing + periodic validation, for example every 500 steps, so we can see whether the model is still improving at 5000 or already starting to plateau.
 
-# ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384 + add checkpointing + periodic validation
+## ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384 + add checkpointing + periodic validation
 
 looks good, continuus improvment
 
-## same setup but 10000 steps of training
+### same setup but 10000 steps of training
 
 This looks good, and now we can see the curve starting to flatten.
 Key points:
@@ -217,7 +220,7 @@ Best next experiment: keep the same model and training setup, but increase the d
 why: current model has now seen ~41M sampled bytes
 training corpus only contains ~19M unique bytes
 
-# %5 trainig set
+## %5 trainig set
 
 Interesting: using 5% training data produced almost the same validation loss as 1%.
 1% data: best val ≈ 0.7820
@@ -231,7 +234,7 @@ I’d do them in this order, one at a time:
 3. learned positional embeddings -> RoPE
 4. then compare recurrence patterns again
 
-# LayerNorm -> RMSNorm
+## LayerNorm -> RMSNorm
 RMSNorm is essentially a wash here:
 | Norm | Params | Time | VRAM | Best val |
 |---|---:|---:|---:|---:|
@@ -242,7 +245,7 @@ So: tiny improvement in speed/params, quality basically unchanged.
 That means RMSNorm is reasonable to keep, but it’s not a breakthrough.
 Next I’d test SwiGLU instead of the current GELU MLP. That changes the feed-forward part, which is a bigger architectural change and may matter more.
 
-# GELU MLP -> SwiGLU
+## GELU MLP -> SwiGLU
 
 The flow changes from: Linear → GELU → Linear
 to:
@@ -260,7 +263,7 @@ SwiGLU is a real win here.
 So you gained about 4.6% lower validation loss for roughly the same parameter count, at the cost of ~13% more VRAM and slightly slower training.
 The generation sample also looks noticeably cleaner.
 
-# Use RoPE
+## Use RoPE
 
 updated tinylm.py with RoPE. I replaced nn.MultiheadAttention with a small custom attention module so we can rotate Q/K directly.
 
@@ -292,7 +295,7 @@ So RoPE gave us:
 - slightly more VRAM
 - cleaner generation
 
-# heads=4 -> heads 6
+## heads=4 -> heads 6
 
 The next architecture experiment I’d do is number of attention heads, because with dim=384, heads=4 means each head is quite large:
 384 / 4 = 96 dimensions per head
@@ -321,14 +324,39 @@ SwiGLU
 RoPE
 ```
 
+## context=256
+
+This is a strong result. Context 256 is clearly worthwhile now.
+More importantly, we can compare fairly by bytes seen, not just steps:
+
+| Setup | Bytes seen | Approx. time | Val loss |
+|---|---:|---:|---:|
+| ctx 128, 10k steps | 40.96M | 629s | 0.7222 |
+| **ctx 256, 5k steps** | **40.96M** | ~635s | **0.6942** |
+
+10k steps val loss = 0.6338
+
+dim = 384
+heads = 6
+context = 256
+
+3 unique blocks
+× 2 recurrent passes
+
+RMSNorm
+SwiGLU
+RoPE
+
+5.51M parameters
+~1.66 GB peak VRAM
+
 ## last tests output
 
 Note: for more output see git history.
 
 ```
-python main.py
 Device:     cuda
-Context:    128
+Context:    256
 Batch size: 32
 Steps:      10000
 Validate every x steps: 500
@@ -341,41 +369,43 @@ Validation bytes: 187,001
 
 Parameters: 5,507,968
 
-    500: train=1.1793  val=1.1237
+    500: train=1.1013  val=1.0416
        saved best_model.pt
-   1000: train=1.0419  val=0.9871
+   1000: train=0.9566  val=0.9037
        saved best_model.pt
-   1500: train=0.9897  val=0.9226
+   1500: train=0.8508  val=0.8393
        saved best_model.pt
-   2000: train=0.9579  val=0.8846
+   2000: train=0.8544  val=0.7982
        saved best_model.pt
-   2500: train=0.8768  val=0.8468
+   2500: train=0.7851  val=0.7730
        saved best_model.pt
-   3000: train=0.9266  val=0.8394
+   3000: train=0.8379  val=0.7478
        saved best_model.pt
-   3500: train=0.8584  val=0.8094
+   3500: train=0.8001  val=0.7318
        saved best_model.pt
-   4000: train=0.8037  val=0.8053
+   4000: train=0.7548  val=0.7247
        saved best_model.pt
-   4500: train=0.8491  val=0.7900
+   4500: train=0.8021  val=0.7092
        saved best_model.pt
-   5000: train=0.8567  val=0.7852
+   5000: train=0.7521  val=0.6942
        saved best_model.pt
-   5500: train=0.7849  val=0.7773
+   5500: train=0.7770  val=0.6890
        saved best_model.pt
-   6000: train=0.8297  val=0.7688
+   6000: train=0.7314  val=0.6836
        saved best_model.pt
-   6500: train=0.8344  val=0.7467
+   6500: train=0.7754  val=0.6646
        saved best_model.pt
-   7000: train=0.8316  val=0.7587
-   7500: train=0.8020  val=0.7655
-   8000: train=0.8411  val=0.7428
+   7000: train=0.7509  val=0.6682
+   7500: train=0.7306  val=0.6538
        saved best_model.pt
-   8500: train=0.8046  val=0.7478
-   9000: train=0.7457  val=0.7262
+   8000: train=0.6912  val=0.6490
        saved best_model.pt
-   9500: train=0.8118  val=0.7299
-  10000: train=0.7710  val=0.7222
+   8500: train=0.6910  val=0.6522
+   9000: train=0.6821  val=0.6370
+       saved best_model.pt
+   9500: train=0.7408  val=0.6363
+       saved best_model.pt
+  10000: train=0.7174  val=0.6338
        saved best_model.pt
 Saved last_model.pt
 
@@ -383,16 +413,18 @@ Saved last_model.pt
 Results
 ------------------------------
 Parameters:      5,507,968
-Training bytes:  40,960,000
-Training time:   628.93s
-Peak VRAM:       873.2 MB
-Bytes/sec:       65,126
-Best val loss:   0.7222
-Using checkpoint from step 10000 (val=0.7222)
+Training bytes:  81,920,000
+Training time:   1270.11s
+Peak VRAM:       1655.7 MB
+Bytes/sec:       64,498
+Best val loss:   0.6338
+Using checkpoint from step 10000 (val=0.6338)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little girl named Lily. She loved to play outside and explore the world. One day, she found a big box of colors and she wanted to play with it. She wantedto see what was wrong, but she
+Once upon a time, there was a little girl named Lily. She loved to play outside in the sunshine. One day, she saw a big box on the ground. She wanted to play with it, but she was scared.
+
+Lily wanted to go to the par
 ```

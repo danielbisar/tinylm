@@ -12,13 +12,14 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Configuration
 # --------------------------------------------------
 
-context = 128
+context = 256
 batch_size = 32
 steps = 10000
 
 dim = 384
 heads = 6
 recurrent_steps = 2
+transform_layers = 3
 
 validate_every = 500
 validation_batches = 20
@@ -33,7 +34,9 @@ print(f"Context:    {context}")
 print(f"Batch size: {batch_size}")
 print(f"Steps:      {steps}")
 print(f"Validate every x steps: {validate_every}")
-print(f"Validate batches: {validation_batches}")
+print(f"Validate batches:       {validation_batches}")
+print(f"Transform Layers:       {transform_layers}")
+print(f"Dim={dim}, Heads={heads}, Recurrent Steps={recurrent_steps}")
 print()
 
 
@@ -85,6 +88,7 @@ model = TinyLM(
     heads=heads,
     max_context=context,
     recurrent_steps=recurrent_steps,
+    transform_layers=transform_layers
 ).to(device)
 
 optimizer = torch.optim.AdamW(

@@ -188,6 +188,7 @@ class TinyLM(nn.Module):
         heads=4,
         max_context=128,
         recurrent_steps=2,
+        transform_layers=3
     ):
         super().__init__()
 
@@ -206,9 +207,8 @@ class TinyLM(nn.Module):
         # Three unique Transformer blocks:
         # A -> B -> C
         self.blocks = nn.ModuleList([
-            TransformerBlock(dim, heads),
-            TransformerBlock(dim, heads),
-            TransformerBlock(dim, heads),
+            TransformerBlock(dim, heads)
+            for _ in range(transform_layers)
         ])
 
         # recurrent_steps=2:
