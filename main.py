@@ -16,7 +16,7 @@ context = 256
 batch_size = 32
 steps = 10000
 
-dim = 512 # size of internal vector
+dim = 384 # size of internal vector
 target_dimensions=64 # dim / heads (size of one head)
 heads = dim // target_dimensions # number of attention heads
 recurrent_steps = 2
