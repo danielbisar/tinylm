@@ -54,7 +54,7 @@ python -m pip install torch numpy datasets
 python main.py
 ```
 
-On Windows PowerShell, create the environment with `py -m venv .venv` and activate it with `.venv\Scripts\Activate.ps1`. For CUDA, install the PyTorch build appropriate to your environment. The original experiment setup recorded `torch==2.13.0` from `https://download.pytorch.org/whl/cu132`; this is historical setup information, not a verified dependency lock.
+On Windows PowerShell, create the environment with `py -m venv .venv` and activate it with `.venv\Scripts\Activate.ps1`. For CUDA, install the PyTorch build appropriate to your environment. The original experiment setup recorded `torch==2.13.0` from `https://download.pytorch.org/whl/cu132` (e.g. `pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu132`); this is historical setup information, not a verified dependency lock.
 
 ```bash
 python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
