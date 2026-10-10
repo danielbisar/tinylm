@@ -292,6 +292,34 @@ So RoPE gave us:
 - slightly more VRAM
 - cleaner generation
 
+# heads=4 -> heads 6
+
+The next architecture experiment I’d do is number of attention heads, because with dim=384, heads=4 means each head is quite large:
+384 / 4 = 96 dimensions per head
+
+I’d test heads=6 next:
+384 / 6 = 64 dimensions per head
+
+That’s a very common head size and gives attention more independent channels without changing the overall model width much.
+
+| Heads | Head dim | Time | Best val |
+|---:|---:|---:|---:|
+| 4 | 96 | 658s | 0.7280 |
+| **6** | **64** | **629s** | **0.7222** |
+
+Same parameter count and VRAM, but slightly better quality and faster training. So I’d keep 6 heads.
+
+Best as of now with 10000 training steps, random batches
+
+```
+dim=384
+heads=6
+context=128
+3 unique blocks × 2 recurrent passes
+RMSNorm
+SwiGLU
+RoPE
+```
 
 ## last tests output
 
@@ -313,41 +341,41 @@ Validation bytes: 187,001
 
 Parameters: 5,507,968
 
-    500: train=1.1795  val=1.1196
+    500: train=1.1793  val=1.1237
        saved best_model.pt
-   1000: train=1.0372  val=0.9874
+   1000: train=1.0419  val=0.9871
        saved best_model.pt
-   1500: train=0.9918  val=0.9222
+   1500: train=0.9897  val=0.9226
        saved best_model.pt
-   2000: train=0.9645  val=0.8894
+   2000: train=0.9579  val=0.8846
        saved best_model.pt
-   2500: train=0.8808  val=0.8526
+   2500: train=0.8768  val=0.8468
        saved best_model.pt
-   3000: train=0.9242  val=0.8475
+   3000: train=0.9266  val=0.8394
        saved best_model.pt
-   3500: train=0.8721  val=0.8142
+   3500: train=0.8584  val=0.8094
        saved best_model.pt
-   4000: train=0.8105  val=0.8087
+   4000: train=0.8037  val=0.8053
        saved best_model.pt
-   4500: train=0.8546  val=0.7955
+   4500: train=0.8491  val=0.7900
        saved best_model.pt
-   5000: train=0.8525  val=0.7918
+   5000: train=0.8567  val=0.7852
        saved best_model.pt
-   5500: train=0.7819  val=0.7825
+   5500: train=0.7849  val=0.7773
        saved best_model.pt
-   6000: train=0.8405  val=0.7768
+   6000: train=0.8297  val=0.7688
        saved best_model.pt
-   6500: train=0.8406  val=0.7544
+   6500: train=0.8344  val=0.7467
        saved best_model.pt
-   7000: train=0.8393  val=0.7621
-   7500: train=0.8008  val=0.7694
-   8000: train=0.8515  val=0.7497
+   7000: train=0.8316  val=0.7587
+   7500: train=0.8020  val=0.7655
+   8000: train=0.8411  val=0.7428
        saved best_model.pt
-   8500: train=0.7952  val=0.7540
-   9000: train=0.7568  val=0.7325
+   8500: train=0.8046  val=0.7478
+   9000: train=0.7457  val=0.7262
        saved best_model.pt
-   9500: train=0.8282  val=0.7370
-  10000: train=0.7708  val=0.7280
+   9500: train=0.8118  val=0.7299
+  10000: train=0.7710  val=0.7222
        saved best_model.pt
 Saved last_model.pt
 
@@ -356,15 +384,15 @@ Results
 ------------------------------
 Parameters:      5,507,968
 Training bytes:  40,960,000
-Training time:   658.02s
+Training time:   628.93s
 Peak VRAM:       873.2 MB
-Bytes/sec:       62,247
-Best val loss:   0.7280
-Using checkpoint from step 10000 (val=0.7280)
+Bytes/sec:       65,126
+Best val loss:   0.7222
+Using checkpoint from step 10000 (val=0.7222)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little girl named Lily. She loved to play with her toys and run around the park. One day, she went to the park to play with her friends. She saw a big tree with a big smile on her face.
+Once upon a time, there was a little girl named Lily. She loved to play outside and explore the world. One day, she found a big box of colors and she wanted to play with it. She wantedto see what was wrong, but she
 ```

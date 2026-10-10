@@ -17,7 +17,7 @@ batch_size = 32
 steps = 10000
 
 dim = 384
-heads = 4
+heads = 6
 recurrent_steps = 2
 
 validate_every = 500
