@@ -16,8 +16,9 @@ context = 256
 batch_size = 32
 steps = 10000
 
-dim = 384
-heads = 6
+dim = 512 # size of internal vector
+target_dimensions=64 # dim / heads (size of one head)
+heads = dim // target_dimensions # number of attention heads
 recurrent_steps = 2
 transform_layers = 3
 
@@ -36,6 +37,7 @@ print(f"Steps:      {steps}")
 print(f"Validate every x steps: {validate_every}")
 print(f"Validate batches:       {validation_batches}")
 print(f"Transform Layers:       {transform_layers}")
+print(f"Target Dimensions:       {target_dimensions}")
 print(f"Dim={dim}, Heads={heads}, Recurrent Steps={recurrent_steps}")
 print()
 

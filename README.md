@@ -350,81 +350,115 @@ RoPE
 5.51M parameters
 ~1.66 GB peak VRAM
 
-## last tests output
+# dim = 512
+
+This is better quality, but much less efficient.
+
+| Model | Params | VRAM | Time | Best val |
+|---|---:|---:|---:|---:|
+| dim 384, ctx 256 | 5.51M | 1.66 GB | 1270s | 0.6338 |
+| dim 512, ctx 256 | 9.70M | 2.23 GB | 2075s | **0.6109** |
+
+So widening to 512 gives about 3.6% lower validation loss, but costs:
+- ~76% more parameters
+- ~35% more VRAM
+- ~63% more training time
+That suggests dim=384 is still the better efficiency point, while 512 is better if we only care about quality.
+
+```
+same dim=384
+same context=256
+same 3 blocks ×2
+
+dense SwiGLU
+        vs
+MoE SwiGLU
+```
+
+e.g.
+8 experts total
+top-2 experts active per position
+
+goal: increase total model capacity without increasing active computation anywhere near as much as widening the whole model. -> That is much closer to the architecture direction we actually care about for a 12 GB GPU.
+
+# last tests output
 
 Note: for more output see git history.
 
 ```
+python main.py
 Device:     cuda
 Context:    256
 Batch size: 32
 Steps:      10000
 Validate every x steps: 500
-Validate batches: 20
+Validate batches:       20
+Transform Layers:       3
+Target Dimensions:       64
+Dim=512, Heads=8, Recurrent Steps=2
 
 Loading training data...
 Training bytes: 93,815,188
 Loading validation data...
 Validation bytes: 187,001
 
-Parameters: 5,507,968
+Parameters: 9,701,632
 
-    500: train=1.1013  val=1.0416
+    500: train=1.0363  val=0.9962
        saved best_model.pt
-   1000: train=0.9566  val=0.9037
+   1000: train=0.8940  val=0.8670
        saved best_model.pt
-   1500: train=0.8508  val=0.8393
+   1500: train=0.8740  val=0.8009
        saved best_model.pt
-   2000: train=0.8544  val=0.7982
+   2000: train=0.8010  val=0.7817
        saved best_model.pt
-   2500: train=0.7851  val=0.7730
+   2500: train=0.7810  val=0.7424
        saved best_model.pt
-   3000: train=0.8379  val=0.7478
+   3000: train=0.7980  val=0.7353
        saved best_model.pt
-   3500: train=0.8001  val=0.7318
+   3500: train=0.7601  val=0.7189
        saved best_model.pt
-   4000: train=0.7548  val=0.7247
+   4000: train=0.8033  val=0.6972
        saved best_model.pt
-   4500: train=0.8021  val=0.7092
+   4500: train=0.7161  val=0.6787
        saved best_model.pt
-   5000: train=0.7521  val=0.6942
+   5000: train=0.7368  val=0.6761
        saved best_model.pt
-   5500: train=0.7770  val=0.6890
+   5500: train=0.7100  val=0.6672
        saved best_model.pt
-   6000: train=0.7314  val=0.6836
+   6000: train=0.6847  val=0.6546
        saved best_model.pt
-   6500: train=0.7754  val=0.6646
+   6500: train=0.7019  val=0.6593
+   7000: train=0.6966  val=0.6493
        saved best_model.pt
-   7000: train=0.7509  val=0.6682
-   7500: train=0.7306  val=0.6538
+   7500: train=0.6853  val=0.6487
        saved best_model.pt
-   8000: train=0.6912  val=0.6490
+   8000: train=0.7357  val=0.6370
        saved best_model.pt
-   8500: train=0.6910  val=0.6522
-   9000: train=0.6821  val=0.6370
+   8500: train=0.6893  val=0.6222
        saved best_model.pt
-   9500: train=0.7408  val=0.6363
+   9000: train=0.7257  val=0.6228
+   9500: train=0.6766  val=0.6109
        saved best_model.pt
-  10000: train=0.7174  val=0.6338
-       saved best_model.pt
+  10000: train=0.6475  val=0.6130
 Saved last_model.pt
 
 ------------------------------
 Results
 ------------------------------
-Parameters:      5,507,968
+Parameters:      9,701,632
 Training bytes:  81,920,000
-Training time:   1270.11s
-Peak VRAM:       1655.7 MB
-Bytes/sec:       64,498
-Best val loss:   0.6338
-Using checkpoint from step 10000 (val=0.6338)
+Training time:   2074.53s
+Peak VRAM:       2227.9 MB
+Bytes/sec:       39,489
+Best val loss:   0.6109
+Using checkpoint from step 9500 (val=0.6109)
 
 ------------------------------
 Generation
 ------------------------------
 
-Once upon a time, there was a little girl named Lily. She loved to play outside in the sunshine. One day, she saw a big box on the ground. She wanted to play with it, but she was scared.
+Once upon a time, there was a little girl named Lily. She loved to play outside in the sunshine. One day, she saw a big building with a big box of toys. Shewanted to play with it too, but it was too high.
 
-Lily wanted to go to the par
+Lily was
 ```
