@@ -1,5 +1,3 @@
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,6 +18,64 @@ class SwiGLU(nn.Module):
             F.silu(self.gate(x))
             * self.up(x)
         )
+
+
+class SparseMoE(nn.Module):
+    def __init__(self, dim, num_experts=8, top_k=2):
+        super().__init__()
+
+        if num_experts < 1 or not 1 <= top_k <= num_experts:
+            raise ValueError("Require num_experts >= 1 and 1 <= top_k <= num_experts")
+
+        self.num_experts = num_experts
+        self.top_k = top_k
+        self.router = nn.Linear(dim, num_experts, bias=False)
+        self.experts = nn.ModuleList([
+            SwiGLU(dim) for _ in range(num_experts)
+        ])
+        self.register_buffer(
+            "last_expert_counts",
+            torch.zeros(num_experts, dtype=torch.long),
+            persistent=False,
+        )
+
+    def forward(self, x):
+        tokens = x.reshape(-1, x.shape[-1])
+
+        # Keep router probabilities and balancing statistics in float32.
+        probabilities = F.softmax(self.router(tokens).float(), dim=-1)
+        weights, selected = probabilities.topk(self.top_k, dim=-1)
+        weights = weights / weights.sum(dim=-1, keepdim=True)
+
+        counts = torch.bincount(
+            selected.reshape(-1), minlength=self.num_experts,
+        )
+        self.last_expert_counts.copy_(counts.detach())
+
+        # Switch-style balancing, extended to top-k: f is each expert's
+        # fraction of assignments (N * k total), p its mean full-router
+        # probability. E * sum(f * p) is 1 for uniform routing. Discrete
+        # counts have no gradient; p supplies gradients to every router logit.
+        fractions = counts.to(probabilities.dtype) / selected.numel()
+        aux_loss = self.num_experts * (
+            fractions * probabilities.mean(dim=0)
+        ).sum()
+
+        output = torch.zeros_like(tokens)
+        for expert_index, expert in enumerate(self.experts):
+            token_indices, slots = torch.where(selected == expert_index)
+            if token_indices.numel() == 0:
+                continue
+
+            # Actual sparse execution: this expert sees only its assigned
+            # tokens. No capacity limit or dropped tokens.
+            expert_output = expert(tokens[token_indices])
+            weighted_output = expert_output * weights[
+                token_indices, slots,
+            ].unsqueeze(-1).to(expert_output.dtype)
+            output.index_add_(0, token_indices, weighted_output.to(output.dtype))
+
+        return output.reshape_as(x), aux_loss
 
 
 def apply_rope(x):
@@ -155,6 +211,8 @@ class TransformerBlock(nn.Module):
         self,
         dim=128,
         heads=4,
+        num_experts=8,
+        top_k=2,
     ):
         super().__init__()
 
@@ -167,18 +225,19 @@ class TransformerBlock(nn.Module):
 
         self.norm2 = nn.RMSNorm(dim)
 
-        self.mlp = SwiGLU(dim)
+        self.mlp = SparseMoE(dim, num_experts, top_k)
 
     def forward(self, x):
         x = x + self.attn(
             self.norm1(x)
         )
 
-        x = x + self.mlp(
+        mlp_output, aux_loss = self.mlp(
             self.norm2(x)
         )
+        x = x + mlp_output
 
-        return x
+        return x, aux_loss
 
 
 class TinyLM(nn.Module):
@@ -188,12 +247,15 @@ class TinyLM(nn.Module):
         heads=4,
         max_context=128,
         recurrent_steps=2,
-        transform_layers=3
+        transform_layers=3,
+        num_experts=8,
+        top_k=2,
     ):
         super().__init__()
 
-        # max_context is kept in the API so main.py
-        # does not need to change.
+        if transform_layers < 1 or recurrent_steps < 1:
+            raise ValueError("transform_layers and recurrent_steps must be positive")
+
         # RoPE itself has no learned position table.
 
         self.max_context = max_context
@@ -204,12 +266,16 @@ class TinyLM(nn.Module):
             dim,
         )
 
-        # Three unique Transformer blocks:
-        # A -> B -> C
+        # Unique Transformer blocks, reused on every recurrent pass.
         self.blocks = nn.ModuleList([
-            TransformerBlock(dim, heads)
+            TransformerBlock(dim, heads, num_experts, top_k)
             for _ in range(transform_layers)
         ])
+        self.register_buffer(
+            "last_expert_counts",
+            torch.zeros(transform_layers, num_experts, dtype=torch.long),
+            persistent=False,
+        )
 
         # recurrent_steps=2:
         #
@@ -224,6 +290,11 @@ class TinyLM(nn.Module):
         )
 
     def forward(self, tokens):
+        """Return byte logits and mean router auxiliary loss over block calls.
+
+        last_expert_counts holds per-block assignments from this forward,
+        summed over recurrent passes; it is diagnostic, not checkpoint state.
+        """
         _, length = tokens.shape
 
         if length > self.max_context:
@@ -234,11 +305,19 @@ class TinyLM(nn.Module):
 
         # No position embedding anymore.
         x = self.token_embedding(tokens)
+        aux_loss = x.new_zeros((), dtype=torch.float32)
+        self.last_expert_counts.zero_()
 
         for _ in range(self.recurrent_steps):
-            for block in self.blocks:
-                x = block(x)
+            for block_index, block in enumerate(self.blocks):
+                x, block_aux_loss = block(x)
+                aux_loss = aux_loss + block_aux_loss
+                self.last_expert_counts[block_index].add_(
+                    block.mlp.last_expert_counts
+                )
+
+        aux_loss = aux_loss / (self.recurrent_steps * len(self.blocks))
 
         x = self.norm(x)
 
-        return self.output(x)
+        return self.output(x), aux_loss

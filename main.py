@@ -17,13 +17,29 @@ batch_size = 32
 steps = 10000
 
 dim = 384 # size of internal vector
-target_dimensions=64 # dim / heads (size of one head)
-heads = dim // target_dimensions # number of attention heads
+target_head_dim = 64 # dim / heads (size of one head)
+heads = dim // target_head_dim # number of attention heads
 recurrent_steps = 2
 transform_layers = 3
 
+num_experts = 8
+top_k = 2
+moe_aux_loss_weight = 0.01
+
 validate_every = 500
 validation_batches = 20
+
+checkpoint_config = {
+    "dim": dim,
+    "heads": heads,
+    "target_head_dim": target_head_dim,
+    "context": context,
+    "recurrent_steps": recurrent_steps,
+    "transform_layers": transform_layers,
+    "num_experts": num_experts,
+    "top_k": top_k,
+    "moe_aux_loss_weight": moe_aux_loss_weight,
+}
 
 torch.manual_seed(42)
 
@@ -37,8 +53,9 @@ print(f"Steps:      {steps}")
 print(f"Validate every x steps: {validate_every}")
 print(f"Validate batches:       {validation_batches}")
 print(f"Transform Layers:       {transform_layers}")
-print(f"Target Dimensions:       {target_dimensions}")
+print(f"Target head dim:         {target_head_dim}")
 print(f"Dim={dim}, Heads={heads}, Recurrent Steps={recurrent_steps}")
+print(f"MoE: {num_experts} experts/block, top-k={top_k}, aux weight={moe_aux_loss_weight}")
 print()
 
 
@@ -90,7 +107,9 @@ model = TinyLM(
     heads=heads,
     max_context=context,
     recurrent_steps=recurrent_steps,
-    transform_layers=transform_layers
+    transform_layers=transform_layers,
+    num_experts=num_experts,
+    top_k=top_k,
 ).to(device)
 
 optimizer = torch.optim.AdamW(
@@ -147,7 +166,7 @@ def validation_loss(model, data):
             batch_size,
         )
 
-        logits = model(x)
+        logits, _ = model(x)
 
         loss = F.cross_entropy(
             logits.reshape(-1, 256),
@@ -169,6 +188,7 @@ best_val_loss = float("inf")
 
 if device == "cuda":
     torch.cuda.reset_peak_memory_stats()
+    torch.cuda.synchronize()
 
 start_time = time.perf_counter()
 
@@ -180,12 +200,13 @@ for step in range(1, steps + 1):
         batch_size,
     )
 
-    logits = model(x)
+    logits, router_aux_loss = model(x)
 
-    loss = F.cross_entropy(
+    lm_loss = F.cross_entropy(
         logits.reshape(-1, 256),
         y.reshape(-1),
     )
+    loss = lm_loss + moe_aux_loss_weight * router_aux_loss
 
     optimizer.zero_grad(
         set_to_none=True,
@@ -198,7 +219,9 @@ for step in range(1, steps + 1):
     # Periodic validation
     # ----------------------------------------------
 
-    if step % validate_every == 0:
+    if step % validate_every == 0 or step == steps:
+        # Snapshot training assignments before validation overwrites them.
+        expert_counts = model.last_expert_counts.clone()
         val_loss = validation_loss(
             model,
             validation_data,
@@ -206,9 +229,19 @@ for step in range(1, steps + 1):
 
         print(
             f"{step:7d}: "
-            f"train={loss.item():.4f}  "
-            f"val={val_loss:.4f}"
+            f"train_lm={lm_loss.item():.4f}  "
+            f"router_aux={router_aux_loss.item():.4f}  "
+            f"val_lm={val_loss:.4f}"
         )
+        # Percentages of top-k assignments, per unique block, over both passes.
+        utilization = 100 * expert_counts.float() / expert_counts.sum(
+            dim=-1, keepdim=True,
+        )
+        utilization_text = "  ".join(
+            f"B{index}=[" + ",".join(f"{value:.1f}" for value in row) + "]"
+            for index, row in enumerate(utilization.cpu().tolist())
+        )
+        print(f"         expert assignment %: {utilization_text}")
 
         # Save best model
         if val_loss < best_val_loss:
@@ -220,12 +253,7 @@ for step in range(1, steps + 1):
                     "optimizer": optimizer.state_dict(),
                     "step": step,
                     "validation_loss": val_loss,
-                    "config": {
-                        "dim": dim,
-                        "heads": heads,
-                        "context": context,
-                        "recurrent_steps": recurrent_steps,
-                    },
+                    "config": checkpoint_config,
                 },
                 "best_model.pt",
             )
@@ -239,12 +267,7 @@ torch.save(
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "step": steps,
-        "config": {
-            "dim": dim,
-            "heads": heads,
-            "context": context,
-            "recurrent_steps": recurrent_steps,
-        },
+        "config": checkpoint_config,
     },
     "last_model.pt",
 )
@@ -288,11 +311,12 @@ print("Results")
 print("------------------------------")
 
 print(f"Parameters:      {parameters:,}")
+print(f"Experts/token:   {top_k} of {num_experts} per block call")
 print(f"Training bytes:  {training_bytes:,}")
 print(f"Training time:   {elapsed:.2f}s")
 print(f"Peak VRAM:       {peak_vram:.1f} MB")
 print(f"Bytes/sec:       {bytes_per_second:,.0f}")
-print(f"Best val loss:   {best_val_loss:.4f}")
+print(f"Best val LM loss: {best_val_loss:.4f}")
 
 
 # --------------------------------------------------
@@ -336,7 +360,7 @@ def generate(
     for _ in range(max_new_bytes):
         x_context = x[:, -context:]
 
-        logits = model(x_context)
+        logits, _ = model(x_context)
 
         next_logits = logits[:, -1, :]
 

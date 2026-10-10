@@ -4,3 +4,5 @@ __pycache__/
 
 best_model.pt
 last_model.pt
+
+/artifacts/
