@@ -11,7 +11,7 @@
 |---|---|
 | Vocabulary / tokenizer | |
 | Dim / heads / head dim | |
-| Context / batch / steps | |
+| Context (tokens; approximate source bytes) / batch / steps | |
 | Unique blocks / recurrent passes | |
 | Normalization / feed-forward / position encoding | |
 | Architecture/runtime comments (main change) | |
@@ -28,12 +28,15 @@
 | Metric | Value |
 |---|---|
 | Parameter count | |
-| Sampled training bytes | |
+| Training/validation raw UTF-8 bytes / tokens / average bytes per token | |
+| Sampled training tokens / estimated source bytes | |
 | Training time (s; specify what is included) | |
 | Peak allocated CUDA memory (MiB) | |
-| Throughput (bytes/s) | |
-| Best validation loss / step | |
-| Final validation loss | |
+| Throughput (tokens/s; estimated source bytes/s) | |
+| Best periodic validation BPB / token loss / step | |
+| Final validation BPB / token loss | |
+| Generated tokens / decoded UTF-8 bytes / tokens/s / bytes/s | |
+| Checkpoint selection metric / tokenizer state | |
 | Checkpoint locations | |
 
 ## Observations

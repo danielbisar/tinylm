@@ -2,7 +2,7 @@
 
 A small byte-level language model built with PyTorch, exploring how model width, context length, attention heads, and shared transformer blocks affect quality, training time, and GPU memory use. Early experiments use a few repeated sentences; later runs train on TinyStories. The recorded experiments discuss an RTX 3060 with 12 GB VRAM.
 
-The current model embeds 256 byte values, applies three unique transformer blocks twice (shared weights between passes), and predicts the next byte. Blocks use RMSNorm, causal attention with RoPE, and sparse MoE feed-forward layers with sixteen SwiGLU experts and top-2 routing. The current configuration is width 384, 6 heads, context 256, batch size 32, and 10,000 training steps. The historical dense width-512 model achieved best validation loss **0.6109** at step 9,500; the comparable dense width-384 baseline achieved **0.6338**. The eight-expert 10,000-step sparse MoE run achieved best LM validation loss **0.5721** at step 9,000; see its [top-2 run report](docs/runs/2026-10-10_13-13-05_sparse-moe_8e_top2.md). The [eight-expert top-1 run](docs/runs/2026-10-10_sparse-moe_8e_top1.md) achieved best LM validation loss **0.6515** at step 9,000, using **2,296.0 MiB** peak VRAM and **1,708.18 seconds** of training time. The [four-expert top-2 run](docs/runs/2026-10-10_sparse-moe_4e_top2.md) achieved **0.5863** at step 10,000 with **16,129,408 parameters**, **3,048.7 MiB** peak VRAM, and **2,149.92 seconds** of training time. The [six-expert top-2 run](docs/runs/2026-10-10_sparse-moe_6e_top2.md) achieved **0.5778** at step 10,000 with **23,209,600 parameters**, **3,177.9 MiB** peak VRAM, and **2,324.46 seconds** of training time. The earlier [sixteen-expert top-2 run](docs/runs/2026-10-10_sparse-moe_16e_top2.md) used a shorter 4,000-step budget and achieved **0.6412** at step 4,000 with **58,610,560 parameters**, **3,764.0 MiB** peak VRAM, and **1,100.73 seconds** of training time. At the same step, the six- and eight-expert top-2 runs had validation losses of **0.6734** and **0.6590**. The latest [10,000-step sixteen-expert top-2 run](docs/runs/2026-10-10_sparse-moe_16e_top2_10000steps.md) achieved best/final LM validation loss **0.5583** at step 10,000 with **58,610,560 parameters**, **3,762.7 MiB** peak VRAM, and **2,726.54 seconds** of training time. Its five longer greedy generation samples show substantial repetition.
+The baseline model embeds 256 byte values (optional locally trained BPE uses its actual vocabulary size), applies three unique transformer blocks twice (shared weights between passes), and predicts the next byte. Blocks use RMSNorm, causal attention with RoPE, and sparse MoE feed-forward layers with sixteen SwiGLU experts and top-2 routing. The current configuration is width 384, 6 heads, context 256, batch size 32, and 10,000 training steps. The historical dense width-512 model achieved best validation loss **0.6109** at step 9,500; the comparable dense width-384 baseline achieved **0.6338**. The eight-expert 10,000-step sparse MoE run achieved best LM validation loss **0.5721** at step 9,000; see its [top-2 run report](docs/runs/2026-10-10_13-13-05_sparse-moe_8e_top2.md). The [eight-expert top-1 run](docs/runs/2026-10-10_sparse-moe_8e_top1.md) achieved best LM validation loss **0.6515** at step 9,000, using **2,296.0 MiB** peak VRAM and **1,708.18 seconds** of training time. The [four-expert top-2 run](docs/runs/2026-10-10_sparse-moe_4e_top2.md) achieved **0.5863** at step 10,000 with **16,129,408 parameters**, **3,048.7 MiB** peak VRAM, and **2,149.92 seconds** of training time. The [six-expert top-2 run](docs/runs/2026-10-10_sparse-moe_6e_top2.md) achieved **0.5778** at step 10,000 with **23,209,600 parameters**, **3,177.9 MiB** peak VRAM, and **2,324.46 seconds** of training time. The earlier [sixteen-expert top-2 run](docs/runs/2026-10-10_sparse-moe_16e_top2.md) used a shorter 4,000-step budget and achieved **0.6412** at step 4,000 with **58,610,560 parameters**, **3,764.0 MiB** peak VRAM, and **1,100.73 seconds** of training time. At the same step, the six- and eight-expert top-2 runs had validation losses of **0.6734** and **0.6590**. The latest [10,000-step sixteen-expert top-2 run](docs/runs/2026-10-10_sparse-moe_16e_top2_10000steps.md) achieved best/final LM validation loss **0.5583** at step 10,000 with **58,610,560 parameters**, **3,762.7 MiB** peak VRAM, and **2,726.54 seconds** of training time. Its five longer greedy generation samples show substantial repetition.
 
 ## Run overview
 
@@ -56,7 +56,7 @@ Use a Python environment with PyTorch (including `torch.nn.RMSNorm`) and Hugging
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install torch numpy datasets
+python -m pip install torch numpy datasets tokenizers
 python train.py --model-prefix=some-prefix-
 python run.py --model-prefix=some-prefix-
 ```
@@ -67,7 +67,7 @@ On Windows PowerShell, create the environment with `py -m venv .venv` and activa
 python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
 ```
 
-Edit `Config` at the top of [core.py](core.py) to change model dimensions, attention head size, context, batch size, training steps, validation settings, dataset splits, or generation prompts. The architecture remains in [tinylm.py](tinylm.py). Training samples `train[:5%]`; validation samples `validation[:1%]`. Every 1,000 steps it validates on 10 random batches, with a final larger 100-batch pass on the last model. The best checkpoint is selected using periodic validation; the last checkpoint records the larger final validation loss.
+Edit `Config` at the top of [core.py](core.py) to change model dimensions, attention head size, context, batch size, training steps, validation settings, dataset splits, or generation prompts. The architecture remains in [tinylm.py](tinylm.py). Training samples `train[:5%]`; validation samples `validation[:1%]`. Every 1,000 steps it validates on 10 random batches, with a final larger 100-batch pass on the last model. The best checkpoint is selected using periodic validation BPB; the last checkpoint records the larger final validation token loss and BPB. For byte mode BPB equals token loss divided by `ln(2)`, so selection ordering is unchanged.
 
 [train.py](train.py) writes `model/some-prefix-best_model.pt` and `model/some-prefix-last_model.pt` for the prefix above. With no prefix, the filenames are `model/best_model.pt` and `model/last_model.pt`. It checks both destinations before loading data or starting training, and aborts if either already exists. Use a different prefix to keep separate experiments, or explicitly allow replacement:
 
@@ -81,15 +81,76 @@ python train.py --model-prefix=some-prefix- --force-overwrite
 python run.py --model-prefix=some-prefix- --checkpoint=last
 ```
 
-Generation still uses greedy decoding and produces 1,000 new bytes for each of the five configured prompts. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports progress, total elapsed time, training and validation bytes/sec, and an estimate of remaining training-loop time. Generation throughput counts newly generated raw bytes, excluding the prompt and any UTF-8 replacement characters in the displayed text.
+Generation uses greedy decoding until approximately `max_output_bytes=1000` newly decoded UTF-8 bytes for each of the five configured prompts, possibly exceeding the budget by the final token. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports token loss and BPB; progress reports tokens processed, tokens/sec, estimated source-byte throughput based on the training corpus average, and remaining training-loop time. Generation reports generated tokens and decoded UTF-8 bytes, both rates excluding the prompt. Invalid generated UTF-8 is replaced, and replacement characters count toward the displayed byte budget; this differs from historical raw-byte generation counts.
 
 Both commands immediately mirror console output into `docs/run/<date-time>-<model-prefix>.md` (using `default` for an empty prefix). The timestamp includes microseconds to distinguish separate invocations. Logs include the timezone, command, configuration, measurements, and generated text; errors and interrupted runs retain the output already written.
+
+## Optional byte-level BPE experiment
+
+Byte mode remains the default (`Config.tokenizer_type="byte"`). To run the first
+BPE benchmark with all existing model/training defaults unchanged:
+
+```bash
+python train.py --model-prefix=bpe-4096- --tokenizer-type=bpe --bpe-vocab-size=4096
+python run.py --model-prefix=bpe-4096-
+```
+
+Alternatively set `tokenizer_type="bpe"` and `bpe_vocab_size=4096` in `Config`.
+`bpe_min_frequency=2`. Training uses Hugging Face `tokenizers`' `models.BPE`,
+`ByteLevel(add_prefix_space=False, use_regex=True)` pre-tokenization and the
+ByteLevel decoder, without normalization, dropout, pretrained vocabulary, or
+special tokens. The trainer includes all 256 ByteLevel alphabet symbols. The
+factory trains exclusively on the newline-joined training split; validation is
+encoded using that same tokenizer. The actual vocabulary can be smaller than
+requested on small corpora, and it sets both model vocabulary layers.
+
+The [CPU tokenizer/workflow smoke report](docs/runs/2026-10-10_bpe_smoke.md)
+measured the intended TinyStories splits with an actual 4,096-entry vocabulary:
+
+| Tokenizer | Training raw bytes | Training tokens | Training bytes/token | Validation bytes/token | Default model parameters |
+|---|---:|---:|---:|---:|---:|
+| Byte | 93,815,188 | 93,815,188 | 1.0000 | 1.0000 | 58,610,560 |
+| BPE 4,096 | 93,815,188 | 23,840,761 | 3.9351 | 3.9504 | 61,563,520 |
+
+This makes 256 BPE positions approximately 1,007 source bytes. The vocabulary
+adds 2,952,960 parameters solely in the embedding/output layers. Only a tiny
+two-step model smoke test was run; no BPE quality benchmark is available yet.
+
+Every checkpoint embeds the complete tokenizer JSON, training settings, library
+version, vocabulary size, architecture, run settings, validation metrics, selection
+metric, and dataset byte/token statistics. Generation reconstructs this state
+without tokenizer training or an external artifact. Old MoE byte checkpoints
+without tokenizer metadata or vocabulary size load with the byte tokenizer and
+256 vocabulary entries. Historical dense checkpoints still have incompatible
+feed-forward weights. The Python generation helper now returns
+`(text, generated_tokens, generated_utf8_bytes, elapsed)`; configuration uses
+`max_output_bytes` instead of `max_new_bytes`.
+
+BPB is the sum of target-token negative log likelihood in nats divided by
+`ln(2) * target_source_bytes`, aggregated over validation batches. Exact source
+bytes come from a precomputed vocabulary table: each reversible ByteLevel symbol
+represents one original byte. Indexing this table with the shifted targets counts
+partial UTF-8 characters and whitespace/newline merges exactly, without token
+window decoding or overlapping Unicode offsets. Byte tokens have length one.
+The denominator uses each evaluated window, not a global compression average.
+Validation still samples uniformly in token positions and scores overlapping
+windows; BPB is a sampled conditional prediction metric, rather than a full-corpus
+compression benchmark with a fixed byte context.
+
+Context remains **256 tokens**: byte mode sees 256 bytes, while BPE covers more
+source text. Equal steps and batch/context sizes process equal token counts but
+more source bytes for BPE. Vocabulary expansion also increases embedding/output
+parameters and softmax computation. Token cross-entropies cannot be compared
+across tokenizers; compare BPB, timings, memory, and generated text lengths.
+Tokenizer preparation is included in total runtime but excluded from training-step
+throughput. Random validation windows differ across tokenizations, and BPB-based
+selection may pick a different BPE checkpoint than token-loss selection.
 
 ## Sparse MoE
 
 Each unique block currently owns a learned `384 → 16` router and sixteen independent SwiGLU experts with hidden width 1,024. Each token selects `top_k` experts (currently two; earlier runs used four or six experts with top-2 or eight experts with top-1 or top-2 routing), and their router probabilities are renormalized to sum to one. For top-1, the selected expert has weight 1. Experts run on gathered assigned tokens only; weighted outputs are added back to the original positions. Empty experts are skipped, and tokens are never dropped. Three unique blocks currently contain 48 experts in total; the second recurrent pass reuses those same weights and routes again.
 
-`TinyLM.forward(tokens)` returns `(logits, router_aux_loss)`. Training uses `LM cross-entropy + 0.01 * router_aux_loss`. The Switch-style balancing loss is `E * sum(f * p)`, where `f` is each expert's fraction of top-k assignments and `p` is its mean probability before top-k selection. Uniform routing gives a value of 1. The auxiliary losses are averaged over all block calls, so the coefficient keeps the same scale when the layer count or recurrent passes change. Validation and best-checkpoint selection use only LM cross-entropy. Logged utilization percentages sum to 100% per block and describe the most recent training batch's assignments over all recurrent passes, rather than unique tokens or the entire run.
+`TinyLM.forward(tokens)` returns `(logits, router_aux_loss)`. Training uses `LM cross-entropy + 0.01 * router_aux_loss`. The Switch-style balancing loss is `E * sum(f * p)`, where `f` is each expert's fraction of top-k assignments and `p` is its mean probability before top-k selection. Uniform routing gives a value of 1. The auxiliary losses are averaged over all block calls, so the coefficient keeps the same scale when the layer count or recurrent passes change. Validation reports LM token cross-entropy and BPB, excluding the router auxiliary term; best-checkpoint selection uses BPB. Logged utilization percentages sum to 100% per block and describe the most recent training batch's assignments over all recurrent passes, rather than unique tokens or the entire run.
 
 The current sixteen-expert top-2 configuration has **58,610,560 parameters** and activates two of sixteen experts per token per block call. The earlier four-, six-, and eight-expert top-2 benchmarks have **16,129,408**, **23,209,600**, and **30,289,792 parameters**, respectively, compared with **5,507,968** for the dense baseline. All four top-2 configurations use approximately twice the dense baseline's feed-forward computation, because each selected expert is a full-size dense SwiGLU. All expert weights and optimizer states still consume memory. The explicit Python dispatch loop favors readability; gathers, scatters, and CUDA synchronization for variable-size expert batches add overhead compared with fused MoE kernels. There is no expert capacity limit, so imbalanced routing can also increase memory pressure. Dense checkpoints use a different feed-forward parameter layout and cannot be loaded directly into the MoE model. Best and last MoE checkpoints include the architecture settings and auxiliary-loss coefficient.
 

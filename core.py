@@ -44,7 +44,12 @@ class Config:
     train_split: str = "train[:5%]"
     validation_split: str = "validation[:1%]"
 
-    max_new_bytes: int = 1000
+    tokenizer_type: str = "byte"
+    bpe_vocab_size: int = 4096
+    bpe_min_frequency: int = 2
+    vocab_size: int = 256  # Set from the tokenizer before model construction.
+
+    max_output_bytes: int = 1000
     prompts: tuple[str, ...] = (
         "Once upon a time",
         "Lily went to the park",
@@ -62,6 +67,7 @@ class Config:
 
     def model_config(self):
         return {
+            "vocab_size": self.vocab_size,
             "dim": self.dim,
             "heads": self.heads,
             "target_head_dim": self.target_head_dim,
@@ -75,19 +81,116 @@ class Config:
 
 
 class ByteTokenizer:
-    """Keep text conversion separate so a future BPE tokenizer can replace it.
-
-    Today one token is exactly one UTF-8 byte. BPE will also need vocabulary
-    support in TinyLM and tokenizer state in checkpoints; neither changes here.
-    """
+    """One token per UTF-8 byte; also the fallback for legacy checkpoints."""
 
     metadata = {"type": "byte", "encoding": "utf-8", "vocab_size": 256}
+    vocab_size = 256
+    byte_lengths = (1,) * 256
 
     def encode(self, text):
         return list(text.encode("utf-8"))
 
     def decode(self, tokens):
         return bytes(tokens).decode("utf-8", errors="replace")
+
+    def token_bytes(self, token):
+        return bytes([token])
+
+
+class BPETokenizer:
+    """Locally trained BPE with reversible ByteLevel symbols and no specials."""
+
+    def __init__(self, tokenizer, training_config):
+        self.tokenizer = tokenizer
+        self.training_config = training_config
+        self.vocab_size = tokenizer.get_vocab_size()
+        # ByteLevel maps each byte to one Unicode symbol. Reconstruct its
+        # reversible map, including the non-printing bytes mapped above 255.
+        from tokenizers.pre_tokenizers import ByteLevel
+
+        visible = list(range(33, 127)) + list(range(161, 173)) + list(range(174, 256))
+        symbols = {chr(value): value for value in visible}
+        for index, value in enumerate(v for v in range(256) if v not in visible):
+            symbols[chr(256 + index)] = value
+        if set(symbols) != set(ByteLevel.alphabet()):
+            raise ValueError("Unsupported ByteLevel alphabet")
+        self._token_bytes = tuple(
+            bytes(symbols[c] for c in tokenizer.id_to_token(index))
+            for index in range(self.vocab_size)
+        )
+        self.byte_lengths = tuple(len(payload) for payload in self._token_bytes)
+
+    @classmethod
+    def train(cls, text, vocab_size=4096, min_frequency=2):
+        from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
+
+        if vocab_size < 256 or min_frequency < 1:
+            raise ValueError("BPE requires vocab_size >= 256 and min_frequency >= 1")
+        tokenizer = Tokenizer(models.BPE())
+        tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(
+            add_prefix_space=False, use_regex=True,
+        )
+        tokenizer.decoder = decoders.ByteLevel()
+        trainer = trainers.BpeTrainer(
+            vocab_size=vocab_size,
+            min_frequency=min_frequency,
+            initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+            special_tokens=[],
+            show_progress=False,
+        )
+        # Train on the same newline-joined stream we encode, so boundaries
+        # and whitespace have identical semantics. No validation text enters.
+        tokenizer.train_from_iterator([text], trainer=trainer)
+        return cls(tokenizer, {
+            "vocab_size": vocab_size, "min_frequency": min_frequency,
+        })
+
+    @property
+    def metadata(self):
+        import tokenizers
+
+        return {
+            "type": "bpe",
+            "vocab_size": self.vocab_size,
+            "training_config": self.training_config,
+            "library_version": tokenizers.__version__,
+            "serialization": self.tokenizer.to_str(),
+        }
+
+    def encode(self, text):
+        return self.tokenizer.encode(text, add_special_tokens=False).ids
+
+    def decode(self, tokens):
+        return self.tokenizer.decode(list(tokens), skip_special_tokens=False)
+
+    def token_bytes(self, token):
+        return self._token_bytes[token]
+
+
+def create_tokenizer(config, training_text):
+    if config.tokenizer_type == "byte":
+        return ByteTokenizer()
+    if config.tokenizer_type == "bpe":
+        return BPETokenizer.train(
+            training_text, config.bpe_vocab_size, config.bpe_min_frequency,
+        )
+    raise ValueError(f"Unsupported tokenizer type: {config.tokenizer_type}")
+
+
+def tokenizer_from_metadata(metadata):
+    if metadata.get("type") == "byte":
+        return ByteTokenizer()
+    if metadata.get("type") == "bpe":
+        from tokenizers import Tokenizer
+
+        tokenizer = BPETokenizer(
+            Tokenizer.from_str(metadata["serialization"]),
+            metadata["training_config"],
+        )
+        if tokenizer.vocab_size != metadata["vocab_size"]:
+            raise ValueError("Checkpoint tokenizer vocabulary mismatch")
+        return tokenizer
+    raise ValueError("Unsupported tokenizer in checkpoint")
 
 
 def model_prefix(value):
@@ -152,6 +255,7 @@ def build_model(config, device):
     # One factory keeps architecture selection separate from training and
     # generation, including a future choice of dense or MoE blocks.
     return TinyLM(
+        vocab_size=config.get("vocab_size", 256),
         dim=config["dim"],
         heads=config["heads"],
         max_context=config["context"],
@@ -162,11 +266,15 @@ def build_model(config, device):
     ).to(device)
 
 
-def print_model_info(model, config, device):
+def print_model_info(model, config, device, average_bytes_per_token=1.0):
     print("Model")
     print(f"  Device: {device}")
     print(f"  Parameters: {sum(p.numel() for p in model.parameters()):,}")
-    print(f"  Context: {config['context']} bytes")
+    print(f"  Vocabulary: {config.get('vocab_size', 256):,}")
+    print(
+        f"  Context: {config['context']} tokens ~= "
+        f"{config['context'] * average_bytes_per_token:,.0f} source bytes"
+    )
     print(f"  Dim: {config['dim']}; heads: {config['heads']}")
     print(f"  Head dim: {config['dim'] // config['heads']}")
     print(f"  Transformer blocks: {config['transform_layers']}")
@@ -200,7 +308,15 @@ class ModelRepository:
                 )
             print("  --force-overwrite enabled; these may be replaced.")
 
-    def save(self, filename, model, optimizer, step, config, val_loss):
+    def save(
+        self, filename, model, optimizer, step, config, val_loss,
+        tokenizer=None, val_bpb=None, data_metadata=None,
+    ):
+        if tokenizer is None and config.tokenizer_type != "byte":
+            raise ValueError("BPE checkpoints require the training tokenizer")
+        tokenizer = tokenizer or ByteTokenizer()
+        if config.vocab_size != tokenizer.vocab_size:
+            raise ValueError("Model and tokenizer vocabulary mismatch")
         self.directory.mkdir(parents=True, exist_ok=True)
         synchronize(next(model.parameters()).device)
         started = time.perf_counter()
@@ -211,7 +327,10 @@ class ModelRepository:
             "validation_loss": val_loss,
             "config": config.model_config(),
             "run_config": asdict(config),
-            "tokenizer": ByteTokenizer.metadata,
+            "tokenizer": tokenizer.metadata,
+            "validation_bpb": val_bpb,
+            "selection_metric": "bpb" if val_bpb is not None else "token_loss",
+            "data_metadata": data_metadata or {},
         }
         path = self.directory / filename
         # Replace only after a complete write, preserving the previous best
@@ -242,8 +361,10 @@ class ModelRepository:
         )
         checkpoint.pop("optimizer", None)
         metadata = checkpoint.get("tokenizer", ByteTokenizer.metadata)
-        if metadata != ByteTokenizer.metadata:
-            raise ValueError("Unsupported tokenizer in checkpoint")
+        tokenizer = tokenizer_from_metadata(metadata)
+        checkpoint["config"].setdefault("vocab_size", 256)
+        if checkpoint["config"]["vocab_size"] != tokenizer.vocab_size:
+            raise ValueError("Model and tokenizer vocabulary mismatch")
         model = build_model(checkpoint["config"], device)
         model.load_state_dict(checkpoint.pop("model"))
         model.eval()

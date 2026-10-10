@@ -37,7 +37,7 @@ class WorkflowTests(unittest.TestCase):
             validate_every=1,
             validation_batches=1,
             final_validation_batches=3,
-            max_new_bytes=3,
+            max_output_bytes=3,
             prompts=("é",),
             model_directory=str(directory / "model"),
             log_directory=str(directory / "docs/run"),
@@ -82,19 +82,20 @@ class WorkflowTests(unittest.TestCase):
             output = io.StringIO()
             with patch.object(torch.cuda, "is_available", return_value=False):
                 with patch.object(train, "Config", return_value=config):
-                    with patch.object(train, "load_data", return_value=data):
-                        with patch.object(
-                            train,
-                            "validation_loss",
-                            wraps=train.validation_loss,
-                        ) as validate:
-                            with redirect_stdout(output):
-                                result = train.main([
-                                    "--model-prefix=test-", "--force-overwrite",
-                                ])
+                    with patch.object(train, "load_source", return_value="synthetic training text"):
+                        with patch.object(train, "load_data", return_value=data):
+                            with patch.object(
+                                train,
+                                "validation_loss",
+                                wraps=train.validation_loss,
+                            ) as validate:
+                                with redirect_stdout(output):
+                                    result = train.main([
+                                        "--model-prefix=test-", "--force-overwrite",
+                                    ])
                 self.assertEqual(result, 0)
                 self.assertEqual(
-                    [call.args[-1] for call in validate.call_args_list],
+                    [call.args[4] for call in validate.call_args_list],
                     [1, 1, 3],
                 )
                 last = torch.load(model_directory / "test-last_model.pt")
@@ -142,7 +143,7 @@ class WorkflowTests(unittest.TestCase):
                 pass
         self.assertEqual(timer.elapsed, 7)
 
-    def test_generation_counts_raw_bytes_excluding_utf8_prompt(self):
+    def test_generation_counts_displayed_utf8_bytes_excluding_prompt(self):
         class InvalidByteModel(torch.nn.Module):
             max_context = 8
 
@@ -155,10 +156,11 @@ class WorkflowTests(unittest.TestCase):
                 logits[..., 255] = 1
                 return logits, torch.tensor(0.0)
 
-        text, generated_bytes, elapsed = run.generate(
+        text, generated_tokens, generated_bytes, elapsed = run.generate(
             InvalidByteModel(), ByteTokenizer(), "é", 3,
         )
-        self.assertEqual(text, "é" + "\ufffd" * 3)
+        self.assertEqual(text, "é" + "\ufffd")
+        self.assertEqual(generated_tokens, 1)
         self.assertEqual(generated_bytes, 3)
         self.assertGreater(len(text.encode("utf-8")), generated_bytes)
         self.assertGreater(elapsed, 0)

@@ -250,6 +250,7 @@ class TinyLM(nn.Module):
         transform_layers=3,
         num_experts=8,
         top_k=2,
+        vocab_size=256,
     ):
         super().__init__()
 
@@ -260,9 +261,9 @@ class TinyLM(nn.Module):
 
         self.max_context = max_context
 
-        # Byte values 0..255 -> learned vectors
+        # Token IDs -> learned vectors
         self.token_embedding = nn.Embedding(
-            256,
+            vocab_size,
             dim,
         )
 
@@ -286,11 +287,11 @@ class TinyLM(nn.Module):
 
         self.output = nn.Linear(
             dim,
-            256,
+            vocab_size,
         )
 
     def forward(self, tokens):
-        """Return byte logits and mean router auxiliary loss over block calls.
+        """Return token logits and mean router auxiliary loss over block calls.
 
         last_expert_counts holds per-block assignments from this forward,
         summed over recurrent passes; it is diagnostic, not checkpoint state.
