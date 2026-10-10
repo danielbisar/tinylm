@@ -14,7 +14,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 context = 256
 batch_size = 32
-steps = 4000
+steps = 10000
 
 dim = 384 # size of internal vector
 target_head_dim = 64 # dim / heads (size of one head)
@@ -347,7 +347,7 @@ print(
 def generate(
     model,
     prompt,
-    max_new_bytes=200,
+    max_new_bytes,
 ):
     model.eval()
 
@@ -389,10 +389,17 @@ print("Generation")
 print("------------------------------")
 print()
 
-print(
-    generate(
-        model,
-        "Once upon a time",
-        200,
-    )
-)
+print(generate(model, "Once upon a time",1000, ))
+print("------------------------------")
+
+print(generate(model, "Lily went to the park",1000, ))
+print("------------------------------")
+
+print(generate(model, "Tom found a strange box",1000, ))
+print("------------------------------")
+
+print(generate(model, "The dog was afraid because",1000, ))
+print("------------------------------")
+
+print(generate(model, "One morning, Sarah discovered",1000, ))
+print("------------------------------")
