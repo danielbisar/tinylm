@@ -10,36 +10,38 @@ Dates below are commit timestamps in UTC+02:00; actual run start times were not 
 
 Loss is held-out next-byte cross-entropy (lower is better): final validation for early runs, best periodic validation after checkpointing was introduced. The first three runs have no held-out validation. Dataset size, training budget, validation sampling, and implementation changed between runs, so results are not all directly comparable. Peak VRAM is PyTorch's maximum allocated CUDA memory, reported as “MB” by the scripts but calculated in MiB. Earlier timings exclude final validation; checkpointed timings include periodic validation and checkpoint writes.
 
-| Report | Dim | Heads | Context | Blocks × passes | Batch | Steps | Train split | Parameters | Time | Peak VRAM (MiB) | Val loss |
-|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|
-| [2026-10-09 22:36](docs/runs/2026-10-09_22-36_43c5c8a.md) | 128 | 4 | 64 | 1 × 1 | 1 | 1,000 | toy | — | — | — | — |
-| [2026-10-09 22:43](docs/runs/2026-10-09_22-43_556792e.md) | 128 | 4 | 64 | 1 × 1 | 1 | 1,000 | toy | — | — | — | — |
-| [2026-10-09 22:51](docs/runs/2026-10-09_22-51_2bd1f09.md) | 128 | 4 | 64 | 4 × 1 | 1 | 1,000 | toy | — | — | — | — |
-| [2026-10-09 23:02 (stale output)](docs/runs/2026-10-09_23-02_70a126b.md) | 128 | 4 | 64 | 4 × 1 | 1 | 1,000 | 1% | — | — | — | — |
-| [2026-10-09 23:06](docs/runs/2026-10-09_23-06_983a31f.md) | 128 | 4 | 64 | 4 × 1 | 1 | 20,000 | 1% | 867,328 | 140.86s | 32.9 | 1.2925 |
-| [2026-10-09 23:14](docs/runs/2026-10-09_23-14_25b29bb.md) | 128 | 4 | 64 | 1 × 4 | 1 | 20,000 | 1% | 272,512 | 141.00s | 23.0 | 1.4159 |
-| [2026-10-09 23:19](docs/runs/2026-10-09_23-19_132b786.md) | 128 | 4 | 64 | 2 × 2 | 1 | 20,000 | 1% | 470,784 | 138.58s | 26.0 | 1.3403 |
-| [2026-10-09 23:25](docs/runs/2026-10-09_23-25_d75f856.md) | 128 | 4 | 64 | 2 × 3 | 1 | 20,000 | 1% | 470,784 | 194.78s | 27.2 | 1.3039 |
-| [2026-10-09 23:31](docs/runs/2026-10-09_23-31_4abf7da.md) | 128 | 4 | 64 | 2 × 4 | 1 | 20,000 | 1% | 470,784 | 247.96s | 28.4 | 1.3072 |
-| [2026-10-09 23:37](docs/runs/2026-10-09_23-37_a77460e.md) | 128 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 478,976 | 189.68s | 31.8 | 1.2649 |
-| [2026-10-09 23:42](docs/runs/2026-10-09_23-42_b5322b8.md) | 128 | 4 | 256 | 2 × 3 | 1 | 20,000 | 1% | 495,360 | 195.54s | 43.5 | 1.2619 |
-| [2026-10-09 23:49](docs/runs/2026-10-09_23-49_a52a788.md) | 256 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 1,744,128 | 198.15s | 57.7 | 1.1105 |
-| [2026-10-09 23:54](docs/runs/2026-10-09_23-54_6f57db8.md) | 384 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 3,795,712 | 204.99s | 99.0 | 1.0384 |
-| [2026-10-10 00:01](docs/runs/2026-10-10_00-01_3745c38.md) | 512 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 6,633,728 | 216.24s | 150.3 | 1.0321 |
-| [2026-10-10 00:09](docs/runs/2026-10-10_00-09_6770ac9.md) | 384 | 4 | 128 | 3 × 2 | 1 | 20,000 | 1% | 5,570,176 | 218.61s | 126.1 | 1.0097 |
-| [2026-10-10 00:15](docs/runs/2026-10-10_00-15_4f7e6f7.md) | 384 | 4 | 128 | 4 × 1 | 1 | 20,000 | 1% | 7,344,640 | 173.28s | 158.0 | 1.0239 |
-| [2026-10-10 00:21](docs/runs/2026-10-10_00-21_6f80b7e.md) | 384 | 4 | 128 | 3 × 2 | 32 | 625 | 1% | 5,570,176 | 41.06s | 745.4 | 1.3875 |
-| [2026-10-10 00:31](docs/runs/2026-10-10_00-31_a03938b.md) | 384 | 4 | 128 | 3 × 2 | 32 | 5,000 | 1% | 5,570,176 | 328.62s | 745.4 | 0.8539 |
-| [2026-10-10 00:56](docs/runs/2026-10-10_00-56_485b371.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 1% | 5,570,176 | 670.40s | 745.4 | 0.7820 |
-| [2026-10-10 01:10](docs/runs/2026-10-10_01-10_8e5f76b.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,570,176 | 679.34s | 745.4 | 0.7826 |
-| [2026-10-10 01:25](docs/runs/2026-10-10_01-25_377ff48.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,567,488 | 671.82s | 745.2 | 0.7821 |
-| [2026-10-10 01:41](docs/runs/2026-10-10_01-41_601bac6.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,561,728 | 695.64s | 845.3 | 0.7463 |
-| [2026-10-10 01:56](docs/runs/2026-10-10_01-56_a0c1968.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,507,968 | 658.02s | 873.2 | 0.7280 |
-| [2026-10-10 10:40](docs/runs/2026-10-10_10-40_918e40a.md) | 384 | 6 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,507,968 | 628.93s | 873.2 | 0.7222 |
-| [2026-10-10 11:07](docs/runs/2026-10-10_11-07_31ca79e.md) | 384 | 6 | 256 | 3 × 2 | 32 | 10,000 | 5% | 5,507,968 | 1270.11s | 1655.7 | 0.6338 |
-| [2026-10-10 11:51](docs/runs/2026-10-10_11-51_f633f44.md) | 512 | 8 | 256 | 3 × 2 | 32 | 10,000 | 5% | 9,701,632 | 2074.53s | 2227.9 | 0.6109 |
+| Report | Dim | Heads | Dim/head | Context | Blocks × passes | Norm | Feed-forward | Position encoding | Batch | Steps | Train split | Sampled training bytes | Parameters | Time | Bytes/sec | Peak VRAM (MiB) | Val loss | Comments |
+|---|---:|---:|---:|---:|---:|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---|
+| [2026-10-09 22:36](docs/runs/2026-10-09_22-36_43c5c8a.md) | 128 | 4 | 32 | 64 | 1 × 1 | LayerNorm | None | None | 1 | 1,000 | toy | 64,000 | — | — | — | — | — | Attention-only toy model |
+| [2026-10-09 22:43](docs/runs/2026-10-09_22-43_556792e.md) | 128 | 4 | 32 | 64 | 1 × 1 | LayerNorm | GELU MLP | Learned position table | 1 | 1,000 | toy | 64,000 | — | — | — | — | — | Add transformer MLP and position table |
+| [2026-10-09 22:51](docs/runs/2026-10-09_22-51_2bd1f09.md) | 128 | 4 | 32 | 64 | 4 × 1 | LayerNorm | GELU MLP | Learned position table | 1 | 1,000 | toy | 64,000 | — | — | — | — | — | Four unique blocks |
+| [2026-10-09 23:02 (stale output)](docs/runs/2026-10-09_23-02_70a126b.md) | 128 | 4 | 32 | 64 | 4 × 1 | LayerNorm | GELU MLP | Learned position table | 1 | 1,000 | 1% | — | — | — | — | — | — | TinyStories code; retained toy output |
+| [2026-10-09 23:06](docs/runs/2026-10-09_23-06_983a31f.md) | 128 | 4 | 32 | 64 | 4 × 1 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 1,280,000 | 867,328 | 140.86s | ~9,087 | 32.9 | 1.2925 | 20k-step TinyStories baseline |
+| [2026-10-09 23:14](docs/runs/2026-10-09_23-14_25b29bb.md) | 128 | 4 | 32 | 64 | 1 × 4 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 1,280,000 | 272,512 | 141.00s | ~9,078 | 23.0 | 1.4159 | One shared block ×4 |
+| [2026-10-09 23:19](docs/runs/2026-10-09_23-19_132b786.md) | 128 | 4 | 32 | 64 | 2 × 2 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 1,280,000 | 470,784 | 138.58s | ~9,237 | 26.0 | 1.3403 | Two shared blocks ×2 |
+| [2026-10-09 23:25](docs/runs/2026-10-09_23-25_d75f856.md) | 128 | 4 | 32 | 64 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 1,280,000 | 470,784 | 194.78s | ~6,572 | 27.2 | 1.3039 | Two shared blocks ×3 |
+| [2026-10-09 23:31](docs/runs/2026-10-09_23-31_4abf7da.md) | 128 | 4 | 32 | 64 | 2 × 4 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 1,280,000 | 470,784 | 247.96s | ~5,162 | 28.4 | 1.3072 | Two shared blocks ×4 |
+| [2026-10-09 23:37](docs/runs/2026-10-09_23-37_a77460e.md) | 128 | 4 | 32 | 128 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 478,976 | 189.68s | ~13,496 | 31.8 | 1.2649 | Context 128 |
+| [2026-10-09 23:42](docs/runs/2026-10-09_23-42_b5322b8.md) | 128 | 4 | 32 | 256 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 5,120,000 | 495,360 | 195.54s | ~26,184 | 43.5 | 1.2619 | Context 256 |
+| [2026-10-09 23:49](docs/runs/2026-10-09_23-49_a52a788.md) | 256 | 4 | 64 | 128 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 1,744,128 | 198.15s | ~12,920 | 57.7 | 1.1105 | Width 256 |
+| [2026-10-09 23:54](docs/runs/2026-10-09_23-54_6f57db8.md) | 384 | 4 | 96 | 128 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 3,795,712 | 204.99s | ~12,488 | 99.0 | 1.0384 | Width 384 |
+| [2026-10-10 00:01](docs/runs/2026-10-10_00-01_3745c38.md) | 512 | 4 | 128 | 128 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 6,633,728 | 216.24s | ~11,839 | 150.3 | 1.0321 | Width 512 |
+| [2026-10-10 00:09](docs/runs/2026-10-10_00-09_6770ac9.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 5,570,176 | 218.61s | ~11,710 | 126.1 | 1.0097 | Three shared blocks ×2 |
+| [2026-10-10 00:15](docs/runs/2026-10-10_00-15_4f7e6f7.md) | 384 | 4 | 96 | 128 | 4 × 1 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 7,344,640 | 173.28s | ~14,774 | 158.0 | 1.0239 | Four unique blocks; one pass |
+| [2026-10-10 00:21](docs/runs/2026-10-10_00-21_6f80b7e.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 32 | 625 | 1% | 2,560,000 | 5,570,176 | 41.06s | 62,348 | 745.4 | 1.3875 | Random batch sampling; seed 42 |
+| [2026-10-10 00:31](docs/runs/2026-10-10_00-31_a03938b.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 32 | 5,000 | 1% | 20,480,000 | 5,570,176 | 328.62s | 62,321 | 745.4 | 0.8539 | 5k steps |
+| [2026-10-10 00:56](docs/runs/2026-10-10_00-56_485b371.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 32 | 10,000 | 1% | 40,960,000 | 5,570,176 | 670.40s | 61,098 | 745.4 | 0.7820 | Periodic validation; best/last checkpoints |
+| [2026-10-10 01:10](docs/runs/2026-10-10_01-10_8e5f76b.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 32 | 10,000 | 5% | 40,960,000 | 5,570,176 | 679.34s | 60,294 | 745.4 | 0.7826 | Train split increased to 5% |
+| [2026-10-10 01:25](docs/runs/2026-10-10_01-25_377ff48.md) | 384 | 4 | 96 | 128 | 3 × 2 | RMSNorm | GELU MLP | Learned position table | 32 | 10,000 | 5% | 40,960,000 | 5,567,488 | 671.82s | 60,969 | 745.2 | 0.7821 | Switch to RMSNorm |
+| [2026-10-10 01:41](docs/runs/2026-10-10_01-41_601bac6.md) | 384 | 4 | 96 | 128 | 3 × 2 | RMSNorm | SwiGLU | Learned position table | 32 | 10,000 | 5% | 40,960,000 | 5,561,728 | 695.64s | 58,881 | 845.3 | 0.7463 | Switch to dense SwiGLU |
+| [2026-10-10 01:56](docs/runs/2026-10-10_01-56_a0c1968.md) | 384 | 4 | 96 | 128 | 3 × 2 | RMSNorm | SwiGLU | RoPE | 32 | 10,000 | 5% | 40,960,000 | 5,507,968 | 658.02s | 62,247 | 873.2 | 0.7280 | RoPE; custom causal attention |
+| [2026-10-10 10:40](docs/runs/2026-10-10_10-40_918e40a.md) | 384 | 6 | 64 | 128 | 3 × 2 | RMSNorm | SwiGLU | RoPE | 32 | 10,000 | 5% | 40,960,000 | 5,507,968 | 628.93s | 65,126 | 873.2 | 0.7222 | Six heads (64 dimensions/head) |
+| [2026-10-10 11:07](docs/runs/2026-10-10_11-07_31ca79e.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | SwiGLU | RoPE | 32 | 10,000 | 5% | 81,920,000 | 5,507,968 | 1270.11s | 64,498 | 1655.7 | 0.6338 | Context 256; configurable block count |
+| [2026-10-10 11:51](docs/runs/2026-10-10_11-51_f633f44.md) | 512 | 8 | 64 | 256 | 3 × 2 | RMSNorm | SwiGLU | RoPE | 32 | 10,000 | 5% | 81,920,000 | 9,701,632 | 2074.53s | 39,489 | 2227.9 | 0.6109 | Width 512; eight heads |
 
-Normalization, feed-forward layers, position encoding, validation curves, throughput, and generated samples are detailed in the linked reports. The final width-512 experiment also changes heads from 6 to 8 to preserve 64 dimensions per head. Proposed MoE experiments in its notes have not been implemented.
+Sampled training bytes are `steps × batch size × context`, including repeated samples, rather than unique corpus size. Bytes/sec is copied from the terminal report when available; `~` marks throughput inferred from sampled bytes and the reported elapsed time. The stale-output revision has no reliable sampled-byte or throughput result.
+
+The Comments column records the main change for each run and can describe future MoE configurations (expert count, top-k routing, total/active parameters), offloading (which components and to which device), or other architecture/runtime changes. Current feed-forward networks are dense; full architecture details, validation curves, and generated samples remain in the linked reports. The final width-512 experiment also changes heads from 6 to 8 to preserve 64 dimensions per head. Proposed MoE experiments in its notes have not been implemented.
 
 ## Setup and run
 
@@ -64,4 +66,4 @@ Edit configuration values at the top of [main.py](main.py) to change model dimen
 
 Create `docs/runs/YYYY-MM-DD_HH-MM_<commit>.md` using the actual run start time for new experiments; include the timezone and exact code revision inside the report. A short commit suffix keeps filenames unique and makes the implementation easy to locate. For multiple runs of the same revision in one minute, append seconds or a run suffix.
 
-Use the [run report template](docs/runs/TEMPLATE.md), save the complete terminal output and configuration, and add one row to the overview above. Record architecture changes, dataset splits, seed, optimizer settings, environment/GPU, parameter count, elapsed time, peak VRAM, best/final validation loss, checkpoint step, and generated text. Keep each experiment's checkpoints under distinct names if you want to retain them.
+Use the [run report template](docs/runs/TEMPLATE.md), save the complete terminal output and configuration, and add one row to the overview above. Record architecture changes (including MoE routing and total/active parameters or offloading details where applicable), dataset splits, sampled training bytes, throughput, seed, optimizer settings, environment/GPU, parameter count, elapsed time, peak VRAM, best/final validation loss, checkpoint step, and generated text. Keep each experiment's checkpoints under distinct names if you want to retain them.

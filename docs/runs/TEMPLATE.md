@@ -14,7 +14,9 @@
 | Context / batch / steps | |
 | Unique blocks / recurrent passes | |
 | Normalization / feed-forward / position encoding | |
-| Other architecture details | |
+| Architecture/runtime comments (main change) | |
+| MoE (if used): experts / top-k / routing / total and active parameters | |
+| Offloading (if used): components / destination device / policy | |
 | Dataset / train and validation splits / corpus bytes | |
 | Seed / precision | |
 | Optimizer / learning rate / other settings | |
