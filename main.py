@@ -23,7 +23,7 @@ recurrent_steps = 2
 transform_layers = 3
 
 num_experts = 8
-top_k = 2
+top_k = 1
 moe_aux_loss_weight = 0.01
 
 validate_every = 500
