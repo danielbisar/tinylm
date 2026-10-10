@@ -1,3 +1,6 @@
 __pycache__/
 .venv/
 .env
+
+best_model.pt
+last_model.pt
