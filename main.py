@@ -22,7 +22,7 @@ heads = dim // target_head_dim # number of attention heads
 recurrent_steps = 2
 transform_layers = 3
 
-num_experts = 4
+num_experts = 6
 top_k = 2
 moe_aux_loss_weight = 0.01
 
