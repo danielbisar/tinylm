@@ -1,464 +1,67 @@
-py -m venv .venv
-.venv\Scripts\activate.ps1
-pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu132
-pip install numpy
-pip install datasets
-
-#verify
-python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0)); print(torch.cuda.is_available())"
-
-# design
-
-```mermaid
-flowchart LR
-A["byte"] --> B["byte embedding"]
-C["position"] --> D["position embedding"]
-B --> E["add"]
-D --> E
-E --> F["attention"]
-F --> G["MLP"]
-G --> H["next-byte prediction"]
-```
-
-use more transformers
-
-```mermaid
-flowchart LR
-A["bytes + position"] --> B["Block 1"]
-B --> C["Block 2"]
-C --> D["Block 3"]
-D --> E["Block 4"]
-E --> F["output"]
-```
-
-# run
-
-Runs are from top to bottom. With the modified params as mentioned.
-All other params stay as the previous best run if not specified otherwise.
-
-## simple recursion
-```
-This is a useful result.
-Model	Params	VRAM	Time	Val loss
-4 unique blocks	867,328	32.9 MB	140.9 s	1.2925
-1 shared block ×4	272,512	23.0 MB	141.0 s	1.4159
-
-
-So recurrence gave us:
-- ~69% fewer parameters
-- ~30% less VRAM
-- essentially identical training speed
-- only ~0.12 worse validation loss
-That is actually promising.
-```
-
-## 2 blocks each used 2 times
-
-```
-So compared with 4 unique blocks, A→B→A→B uses about 46% fewer parameters and ~21% less VRAM, while validation loss only worsens from 1.2925 to 1.3403.
-
-The repetitive generation is still a weakness, but that affects all these tiny models.
-```
-
-## 2 blockes each used 3 times
-
-| Model | Params | VRAM | Time | Val loss |
-|---|---:|---:|---:|---:|
-| 4 unique blocks | 867k | 32.9 MB | 141 s | **1.2925** |
-| A→B ×2 | 471k | 26.0 MB | 139 s | 1.3403 |
-| **A→B ×3** | **471k** | **27.2 MB** | **195 s** | **1.3039** |
-| A ×4 | 273k | 23.0 MB | 141 s | 1.4159 |
-
-I wouldn't worry much about the repetitive generated text yet. We're using greedy argmax, only 64 bytes of context, and a ~0.5M parameter model.
-
-## 2 blocks each 4 times
-
-| Model | Params | Time | VRAM | Val loss |
-|---|---:|---:|---:|---:|
-| A→B ×3 | 470,784 | 194.8s | 27.2 MB | **1.3039** |
-| A→B ×4 | 470,784 | 248.0s | 28.4 MB | 1.3072 |
-
-## context=128 instead of 64
-
-| Model | Context | Val loss | Time | VRAM |
-|---|---:|---:|---:|---:|
-| A→B ×3 | 64 | 1.3039 | 194.8s | 27.2 MB |
-| A→B ×3 | 128 | **1.2649** | 189.7s | 31.8 MB |
-
-## context=256 instead of 64
-
-The next thing I’d test is context 256 before touching experts or anything more complex. This experiment strongly suggests the model is still context-limited.
-
-| Context | Val loss | VRAM | Time |
-|---:|---:|---:|---:|
-| 64 | 1.3039 | 27.2 MB | 194.8s |
-| 128 | **1.2649** | 31.8 MB | 189.7s |
-| 256 | **1.2619** | 43.5 MB | 195.5s |
-
-So 128 → 256 gives only 0.003 better loss but costs ~37% more VRAM.
-I’d keep context 128 as the better efficiency point.
-
-## context=128, dim=256, recurrent_steps=3
-
-| Model | Params | VRAM | Val loss |
-|---|---:|---:|---:|
-| dim 128, ctx 128, A→B ×3 | 479k | 31.8 MB | 1.2649 |
-| **dim 256, ctx 128, A→B ×3** | **1.74M** | **57.7 MB** | **1.1105** |
-
-## context=128, dim=384, recurrent_steps=3
-
-This is another clear gain.
-| dim | Params | VRAM | Val loss |
-|---:|---:|---:|---:|
-| 128 | 479k | 31.8 MB | 1.2649 |
-| 256 | 1.74M | 57.7 MB | 1.1105 |
-| **384** | **3.80M** | **99 MB** | **1.0384** |
-
-
-And the generated text is much more coherent now.
-The important pattern so far:
-Wider model capacity is buying much more quality than longer context or extra recurrent passes.
-
-You still have enormous VRAM headroom, so I’d test dim=512, context=128, recurrent_steps=3 next.
-That should tell us whether the gains continue or start flattening.
-
-## context=128, dim=512, recurrent_steps=3
-
-| dim | Params | VRAM | Val loss |
-|---:|---:|---:|---:|
-| 256 | 1.74M | 57.7 MB | 1.1105 |
-| 384 | 3.80M | 99.0 MB | **1.0384** |
-| 512 | 6.63M | 150.3 MB | **1.0321** |
-
-## dim=384, context=128, recurrent_steps=2, blocks=3
-
-| Design | Params | VRAM | Val loss |
-|---|---:|---:|---:|
-| 2 blocks ×3, dim 384 | 3.80M | 99 MB | 1.0384 |
-| 3 blocks ×2, dim 384 | 5.57M | 126 MB | **1.0097** |
-| 2 blocks ×3, dim 512 | 6.63M | 150 MB | 1.0321 |
-
-So adding more unique blocks helped more than just increasing width.
-The generation also looks cleaner.
-That suggests our current bottleneck is more likely unique model capacity, not extra recurrent depth.
-
-## dim=384, context=128, recurrent_steps=1, blocks=4
-
-That gives only 4 block applications instead of 6, but more unique parameters. It will tell us whether recurrence is actually buying us anything at this scale.
-
-| Design | Params | Block applications | Time | VRAM | Val loss |
-|---|---:|---:|---:|---:|---:|
-| 3 unique ×2 | 5.57M | 6 | 218.6s | 126 MB | **1.0097** |
-| 4 unique ×1 | 7.34M | 4 | 173.3s | 158 MB | 1.0239 |
-
-So the 3×2 model is:
-- ~24% fewer parameters
-- ~20% less VRAM
-- slightly better validation loss
-- but ~26% slower
-
-For your RTX 3060, that trade is attractive because we have much more compute headroom than VRAM pressure.
-I’d keep 3 unique blocks ×2 as our current baseline.
-The next thing I’d change is probably the training setup rather than architecture: use a batch larger than 1. Right now each update learns from only one 128-byte sequence, which makes those training-loss numbers jump around a lot and wastes GPU parallelism.
-
-## change impl to use random chunks=32
-
-But look at throughput
-Old 3 blocks ×2 run:
-~2.56M bytes / 218.6 s
-≈ 11,700 bytes/sec
-
-Batch-32:
-62,348 bytes/sec
-
-That's about 5.3× more training throughput.
-And you're only using:
-745 MB / 12 GB VRAM
-
-So batching is definitely the right direction.
-
-I'd now keep:
-batch_size = 32
-context = 128
-dim = 384
-recurrent_steps = 2
-
-steps = 5000
-
-And from now on, we should keep batch size fixed when comparing architectures. That will make the experiments much cleaner.
-
-One other useful observation: your training loss with batch 32 is beautifully smooth
-
-## ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384
-
-| Setup | Training bytes | Time | Val loss |
-|---|---:|---:|---:|
-| batch 1 | 2.56M | 218.6s | 1.0097 |
-| batch 32 | 20.48M | 328.6s | **0.8539** |
-
-The generated text is also much better:
-“Once upon a time, there was a little girl named Lily. She loved to play outside in the garden...”
-
-That’s now coherent enough that architecture comparisons become more meaningful.
-The next thing I’d do is not change the architecture yet. Keep this exact setup and add checkpointing + periodic validation, for example every 500 steps, so we can see whether the model is still improving at 5000 or already starting to plateau.
-
-## ctx=128, batch_size=32, steps=5000, recur=2, 3 blocks, dim=384 + add checkpointing + periodic validation
-
-looks good, continuus improvment
-
-### same setup but 10000 steps of training
-
-This looks good, and now we can see the curve starting to flatten.
-Key points:
-- Best validation loss improved from 0.8570 at 5k steps to 0.7820 at 9.5k.
-- Improvement after ~8k is much slower.
-- 10k is slightly worse than 9.5k, so saving the best checkpoint was useful.
-- Generation is much more coherent than before.
-So I would not just keep training this exact setup indefinitely.
-Best next experiment: keep the same model and training setup, but increase the dataset from train[:1%] to maybe train[:5%].
-
-why: current model has now seen ~41M sampled bytes
-training corpus only contains ~19M unique bytes
-
-## %5 trainig set
-
-Interesting: using 5% training data produced almost the same validation loss as 1%.
-1% data: best val ≈ 0.7820
-5% data: best val ≈ 0.7826
-
-So at this training budget, data diversity is not the bottleneck. The model itself/training setup is now the stronger candidate.
-
-I’d do them in this order, one at a time:
-1. LayerNorm -> RMSNorm
-2. GELU MLP -> SwiGLU
-3. learned positional embeddings -> RoPE
-4. then compare recurrence patterns again
-
-## LayerNorm -> RMSNorm
-RMSNorm is essentially a wash here:
-| Norm | Params | Time | VRAM | Best val |
-|---|---:|---:|---:|---:|
-| LayerNorm | 5,570,176 | 679.3s | 745.4 MB | 0.7826 |
-| RMSNorm | 5,567,488 | 671.8s | 745.2 MB | **0.7821** |
-
-So: tiny improvement in speed/params, quality basically unchanged.
-That means RMSNorm is reasonable to keep, but it’s not a breakthrough.
-Next I’d test SwiGLU instead of the current GELU MLP. That changes the feed-forward part, which is a bigger architectural change and may matter more.
-
-## GELU MLP -> SwiGLU
-
-The flow changes from: Linear → GELU → Linear
-to:
-        ┌→ gate → SiLU ─┐
-input ──┤               × → down → output
-        └→ up ──────────┘
-
-SwiGLU is a real win here.
-
-| MLP | Params | Time | VRAM | Best val |
-|---|---:|---:|---:|---:|
-| GELU | 5.57M | 671.8s | 745 MB | 0.7821 |
-| **SwiGLU** | 5.56M | 695.6s | 845 MB | **0.7463** |
-
-So you gained about 4.6% lower validation loss for roughly the same parameter count, at the cost of ~13% more VRAM and slightly slower training.
-The generation sample also looks noticeably cleaner.
-
-## Use RoPE
-
-updated tinylm.py with RoPE. I replaced nn.MultiheadAttention with a small custom attention module so we can rotate Q/K directly.
-
-before:
-token embedding + learned position embedding
-                    ↓
-                 attention
-
-now:
-token embedding
-     ↓
-Q/K generated
-     ↓
-RoPE rotates Q/K based on position
-     ↓
-attention
-
-RoPE is another real improvement.
-
-| Position method | Params | Time | VRAM | Best val |
-|---|---:|---:|---:|---:|
-| Learned positions | 5.56M | 695.6s | 845 MB | 0.7463 |
-| **RoPE** | **5.51M** | **658.0s** | 873 MB | **0.7280** |
-
-So RoPE gave us:
-- ~2.5% lower validation loss
-- slightly fewer parameters
-- faster training
-- slightly more VRAM
-- cleaner generation
-
-## heads=4 -> heads 6
-
-The next architecture experiment I’d do is number of attention heads, because with dim=384, heads=4 means each head is quite large:
-384 / 4 = 96 dimensions per head
-
-I’d test heads=6 next:
-384 / 6 = 64 dimensions per head
-
-That’s a very common head size and gives attention more independent channels without changing the overall model width much.
-
-| Heads | Head dim | Time | Best val |
-|---:|---:|---:|---:|
-| 4 | 96 | 658s | 0.7280 |
-| **6** | **64** | **629s** | **0.7222** |
-
-Same parameter count and VRAM, but slightly better quality and faster training. So I’d keep 6 heads.
-
-Best as of now with 10000 training steps, random batches
-
-```
-dim=384
-heads=6
-context=128
-3 unique blocks × 2 recurrent passes
-RMSNorm
-SwiGLU
-RoPE
-```
-
-## context=256
-
-This is a strong result. Context 256 is clearly worthwhile now.
-More importantly, we can compare fairly by bytes seen, not just steps:
-
-| Setup | Bytes seen | Approx. time | Val loss |
-|---|---:|---:|---:|
-| ctx 128, 10k steps | 40.96M | 629s | 0.7222 |
-| **ctx 256, 5k steps** | **40.96M** | ~635s | **0.6942** |
-
-10k steps val loss = 0.6338
-
-dim = 384
-heads = 6
-context = 256
-
-3 unique blocks
-× 2 recurrent passes
-
-RMSNorm
-SwiGLU
-RoPE
-
-5.51M parameters
-~1.66 GB peak VRAM
-
-# dim = 512
-
-This is better quality, but much less efficient.
-
-| Model | Params | VRAM | Time | Best val |
-|---|---:|---:|---:|---:|
-| dim 384, ctx 256 | 5.51M | 1.66 GB | 1270s | 0.6338 |
-| dim 512, ctx 256 | 9.70M | 2.23 GB | 2075s | **0.6109** |
-
-So widening to 512 gives about 3.6% lower validation loss, but costs:
-- ~76% more parameters
-- ~35% more VRAM
-- ~63% more training time
-That suggests dim=384 is still the better efficiency point, while 512 is better if we only care about quality.
-
-```
-same dim=384
-same context=256
-same 3 blocks ×2
-
-dense SwiGLU
-        vs
-MoE SwiGLU
-```
-
-e.g.
-8 experts total
-top-2 experts active per position
-
-goal: increase total model capacity without increasing active computation anywhere near as much as widening the whole model. -> That is much closer to the architecture direction we actually care about for a 12 GB GPU.
-
-# last tests output
-
-Note: for more output see git history.
-
-```
+# TinyLM
+
+A small byte-level language model built with PyTorch, exploring how model width, context length, attention heads, and shared transformer blocks affect quality, training time, and GPU memory use. Early experiments use a few repeated sentences; later runs train on TinyStories. The recorded experiments discuss an RTX 3060 with 12 GB VRAM.
+
+The current model embeds 256 byte values, applies three unique transformer blocks twice (shared weights between passes), and predicts the next byte. Blocks use RMSNorm, causal attention with RoPE, and SwiGLU. The current configuration is width 512, 8 heads, context 256, batch size 32, and 10,000 training steps. It achieved best validation loss **0.6109** at step 9,500.
+
+## Run overview
+
+Dates below are commit timestamps in UTC+02:00; actual run start times were not recorded. Each report reconstructs the configuration at that revision and preserves its available terminal output and experiment notes. `Blocks × passes` distinguishes unique parameter sets from repeated computation. `—` means no reliable measurement is available.
+
+Loss is held-out next-byte cross-entropy (lower is better): final validation for early runs, best periodic validation after checkpointing was introduced. The first three runs have no held-out validation. Dataset size, training budget, validation sampling, and implementation changed between runs, so results are not all directly comparable. Peak VRAM is PyTorch's maximum allocated CUDA memory, reported as “MB” by the scripts but calculated in MiB. Earlier timings exclude final validation; checkpointed timings include periodic validation and checkpoint writes.
+
+| Report | Dim | Heads | Context | Blocks × passes | Batch | Steps | Train split | Parameters | Time | Peak VRAM (MiB) | Val loss |
+|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|
+| [2026-10-09 22:36](docs/runs/2026-10-09_22-36_43c5c8a.md) | 128 | 4 | 64 | 1 × 1 | 1 | 1,000 | toy | — | — | — | — |
+| [2026-10-09 22:43](docs/runs/2026-10-09_22-43_556792e.md) | 128 | 4 | 64 | 1 × 1 | 1 | 1,000 | toy | — | — | — | — |
+| [2026-10-09 22:51](docs/runs/2026-10-09_22-51_2bd1f09.md) | 128 | 4 | 64 | 4 × 1 | 1 | 1,000 | toy | — | — | — | — |
+| [2026-10-09 23:02 (stale output)](docs/runs/2026-10-09_23-02_70a126b.md) | 128 | 4 | 64 | 4 × 1 | 1 | 1,000 | 1% | — | — | — | — |
+| [2026-10-09 23:06](docs/runs/2026-10-09_23-06_983a31f.md) | 128 | 4 | 64 | 4 × 1 | 1 | 20,000 | 1% | 867,328 | 140.86s | 32.9 | 1.2925 |
+| [2026-10-09 23:14](docs/runs/2026-10-09_23-14_25b29bb.md) | 128 | 4 | 64 | 1 × 4 | 1 | 20,000 | 1% | 272,512 | 141.00s | 23.0 | 1.4159 |
+| [2026-10-09 23:19](docs/runs/2026-10-09_23-19_132b786.md) | 128 | 4 | 64 | 2 × 2 | 1 | 20,000 | 1% | 470,784 | 138.58s | 26.0 | 1.3403 |
+| [2026-10-09 23:25](docs/runs/2026-10-09_23-25_d75f856.md) | 128 | 4 | 64 | 2 × 3 | 1 | 20,000 | 1% | 470,784 | 194.78s | 27.2 | 1.3039 |
+| [2026-10-09 23:31](docs/runs/2026-10-09_23-31_4abf7da.md) | 128 | 4 | 64 | 2 × 4 | 1 | 20,000 | 1% | 470,784 | 247.96s | 28.4 | 1.3072 |
+| [2026-10-09 23:37](docs/runs/2026-10-09_23-37_a77460e.md) | 128 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 478,976 | 189.68s | 31.8 | 1.2649 |
+| [2026-10-09 23:42](docs/runs/2026-10-09_23-42_b5322b8.md) | 128 | 4 | 256 | 2 × 3 | 1 | 20,000 | 1% | 495,360 | 195.54s | 43.5 | 1.2619 |
+| [2026-10-09 23:49](docs/runs/2026-10-09_23-49_a52a788.md) | 256 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 1,744,128 | 198.15s | 57.7 | 1.1105 |
+| [2026-10-09 23:54](docs/runs/2026-10-09_23-54_6f57db8.md) | 384 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 3,795,712 | 204.99s | 99.0 | 1.0384 |
+| [2026-10-10 00:01](docs/runs/2026-10-10_00-01_3745c38.md) | 512 | 4 | 128 | 2 × 3 | 1 | 20,000 | 1% | 6,633,728 | 216.24s | 150.3 | 1.0321 |
+| [2026-10-10 00:09](docs/runs/2026-10-10_00-09_6770ac9.md) | 384 | 4 | 128 | 3 × 2 | 1 | 20,000 | 1% | 5,570,176 | 218.61s | 126.1 | 1.0097 |
+| [2026-10-10 00:15](docs/runs/2026-10-10_00-15_4f7e6f7.md) | 384 | 4 | 128 | 4 × 1 | 1 | 20,000 | 1% | 7,344,640 | 173.28s | 158.0 | 1.0239 |
+| [2026-10-10 00:21](docs/runs/2026-10-10_00-21_6f80b7e.md) | 384 | 4 | 128 | 3 × 2 | 32 | 625 | 1% | 5,570,176 | 41.06s | 745.4 | 1.3875 |
+| [2026-10-10 00:31](docs/runs/2026-10-10_00-31_a03938b.md) | 384 | 4 | 128 | 3 × 2 | 32 | 5,000 | 1% | 5,570,176 | 328.62s | 745.4 | 0.8539 |
+| [2026-10-10 00:56](docs/runs/2026-10-10_00-56_485b371.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 1% | 5,570,176 | 670.40s | 745.4 | 0.7820 |
+| [2026-10-10 01:10](docs/runs/2026-10-10_01-10_8e5f76b.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,570,176 | 679.34s | 745.4 | 0.7826 |
+| [2026-10-10 01:25](docs/runs/2026-10-10_01-25_377ff48.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,567,488 | 671.82s | 745.2 | 0.7821 |
+| [2026-10-10 01:41](docs/runs/2026-10-10_01-41_601bac6.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,561,728 | 695.64s | 845.3 | 0.7463 |
+| [2026-10-10 01:56](docs/runs/2026-10-10_01-56_a0c1968.md) | 384 | 4 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,507,968 | 658.02s | 873.2 | 0.7280 |
+| [2026-10-10 10:40](docs/runs/2026-10-10_10-40_918e40a.md) | 384 | 6 | 128 | 3 × 2 | 32 | 10,000 | 5% | 5,507,968 | 628.93s | 873.2 | 0.7222 |
+| [2026-10-10 11:07](docs/runs/2026-10-10_11-07_31ca79e.md) | 384 | 6 | 256 | 3 × 2 | 32 | 10,000 | 5% | 5,507,968 | 1270.11s | 1655.7 | 0.6338 |
+| [2026-10-10 11:51](docs/runs/2026-10-10_11-51_f633f44.md) | 512 | 8 | 256 | 3 × 2 | 32 | 10,000 | 5% | 9,701,632 | 2074.53s | 2227.9 | 0.6109 |
+
+Normalization, feed-forward layers, position encoding, validation curves, throughput, and generated samples are detailed in the linked reports. The final width-512 experiment also changes heads from 6 to 8 to preserve 64 dimensions per head. Proposed MoE experiments in its notes have not been implemented.
+
+## Setup and run
+
+Use a Python environment with PyTorch (including `torch.nn.RMSNorm`) and Hugging Face Datasets. The script automatically selects CUDA when available and otherwise uses the CPU. The first run downloads TinyStories.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install torch numpy datasets
 python main.py
-Device:     cuda
-Context:    256
-Batch size: 32
-Steps:      10000
-Validate every x steps: 500
-Validate batches:       20
-Transform Layers:       3
-Target Dimensions:       64
-Dim=512, Heads=8, Recurrent Steps=2
-
-Loading training data...
-Training bytes: 93,815,188
-Loading validation data...
-Validation bytes: 187,001
-
-Parameters: 9,701,632
-
-    500: train=1.0363  val=0.9962
-       saved best_model.pt
-   1000: train=0.8940  val=0.8670
-       saved best_model.pt
-   1500: train=0.8740  val=0.8009
-       saved best_model.pt
-   2000: train=0.8010  val=0.7817
-       saved best_model.pt
-   2500: train=0.7810  val=0.7424
-       saved best_model.pt
-   3000: train=0.7980  val=0.7353
-       saved best_model.pt
-   3500: train=0.7601  val=0.7189
-       saved best_model.pt
-   4000: train=0.8033  val=0.6972
-       saved best_model.pt
-   4500: train=0.7161  val=0.6787
-       saved best_model.pt
-   5000: train=0.7368  val=0.6761
-       saved best_model.pt
-   5500: train=0.7100  val=0.6672
-       saved best_model.pt
-   6000: train=0.6847  val=0.6546
-       saved best_model.pt
-   6500: train=0.7019  val=0.6593
-   7000: train=0.6966  val=0.6493
-       saved best_model.pt
-   7500: train=0.6853  val=0.6487
-       saved best_model.pt
-   8000: train=0.7357  val=0.6370
-       saved best_model.pt
-   8500: train=0.6893  val=0.6222
-       saved best_model.pt
-   9000: train=0.7257  val=0.6228
-   9500: train=0.6766  val=0.6109
-       saved best_model.pt
-  10000: train=0.6475  val=0.6130
-Saved last_model.pt
-
-------------------------------
-Results
-------------------------------
-Parameters:      9,701,632
-Training bytes:  81,920,000
-Training time:   2074.53s
-Peak VRAM:       2227.9 MB
-Bytes/sec:       39,489
-Best val loss:   0.6109
-Using checkpoint from step 9500 (val=0.6109)
-
-------------------------------
-Generation
-------------------------------
-
-Once upon a time, there was a little girl named Lily. She loved to play outside in the sunshine. One day, she saw a big building with a big box of toys. Shewanted to play with it too, but it was too high.
-
-Lily was
 ```
+
+On Windows PowerShell, create the environment with `py -m venv .venv` and activate it with `.venv\Scripts\Activate.ps1`. For CUDA, install the PyTorch build appropriate to your environment. The original experiment setup recorded `torch==2.13.0` from `https://download.pytorch.org/whl/cu132`; this is historical setup information, not a verified dependency lock.
+
+```bash
+python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
+```
+
+Edit configuration values at the top of [main.py](main.py) to change model dimensions, context, batch size, training steps, or validation frequency. The architecture is in [tinylm.py](tinylm.py). Training samples `train[:5%]`; validation samples `validation[:1%]`. Every 500 steps it validates on 20 random batches. It writes `best_model.pt` and `last_model.pt` in the working directory, then reloads the best checkpoint to generate 200 bytes from “Once upon a time”. Subsequent runs overwrite those checkpoint filenames.
+
+## Recording future runs
+
+Create `docs/runs/YYYY-MM-DD_HH-MM_<commit>.md` using the actual run start time for new experiments; include the timezone and exact code revision inside the report. A short commit suffix keeps filenames unique and makes the implementation easy to locate. For multiple runs of the same revision in one minute, append seconds or a run suffix.
+
+Use the [run report template](docs/runs/TEMPLATE.md), save the complete terminal output and configuration, and add one row to the overview above. Record architecture changes, dataset splits, seed, optimizer settings, environment/GPU, parameter count, elapsed time, peak VRAM, best/final validation loss, checkpoint step, and generated text. Keep each experiment's checkpoints under distinct names if you want to retain them.
