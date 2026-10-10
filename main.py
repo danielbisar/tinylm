@@ -14,7 +14,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 context = 256
 batch_size = 32
-steps = 10000
+steps = 4000
 
 dim = 384 # size of internal vector
 target_head_dim = 64 # dim / heads (size of one head)
@@ -22,7 +22,7 @@ heads = dim // target_head_dim # number of attention heads
 recurrent_steps = 2
 transform_layers = 3
 
-num_experts = 6
+num_experts = 16
 top_k = 2
 moe_aux_loss_weight = 0.01
 
