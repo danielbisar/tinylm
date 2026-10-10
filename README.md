@@ -57,7 +57,8 @@ Use a Python environment with PyTorch (including `torch.nn.RMSNorm`) and Hugging
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install torch numpy datasets
-python main.py
+python train.py --model-prefix=some-prefix-
+python run.py --model-prefix=some-prefix-
 ```
 
 On Windows PowerShell, create the environment with `py -m venv .venv` and activate it with `.venv\Scripts\Activate.ps1`. For CUDA, install the PyTorch build appropriate to your environment. The original experiment setup recorded `torch==2.13.0` from `https://download.pytorch.org/whl/cu132` (e.g. `pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu132`); this is historical setup information, not a verified dependency lock.
@@ -66,7 +67,23 @@ On Windows PowerShell, create the environment with `py -m venv .venv` and activa
 python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
 ```
 
-Edit configuration values at the top of [main.py](main.py) to change model dimensions, context, batch size, training steps, or validation frequency. The architecture is in [tinylm.py](tinylm.py). Training samples `train[:5%]`; validation samples `validation[:1%]`. Every 500 steps it validates on 20 random batches. It writes `best_model.pt` and `last_model.pt` in the working directory, then reloads the best checkpoint to generate 1,000 new bytes for each of five prompts: “Once upon a time”, “Lily went to the park”, “Tom found a strange box”, “The dog was afraid because”, and “One morning, Sarah discovered”. Subsequent runs overwrite those checkpoint filenames.
+Edit `Config` at the top of [core.py](core.py) to change model dimensions, attention head size, context, batch size, training steps, validation settings, dataset splits, or generation prompts. The architecture remains in [tinylm.py](tinylm.py). Training samples `train[:5%]`; validation samples `validation[:1%]`. Every 1,000 steps it validates on 10 random batches, with a final larger 100-batch pass on the last model. The best checkpoint is selected using periodic validation; the last checkpoint records the larger final validation loss.
+
+[train.py](train.py) writes `model/some-prefix-best_model.pt` and `model/some-prefix-last_model.pt` for the prefix above. With no prefix, the filenames are `model/best_model.pt` and `model/last_model.pt`. It checks both destinations before loading data or starting training, and aborts if either already exists. Use a different prefix to keep separate experiments, or explicitly allow replacement:
+
+```bash
+python train.py --model-prefix=some-prefix- --force-overwrite
+```
+
+[run.py](run.py) loads the best checkpoint by default, restoring its saved architecture settings even if `Config` has since changed. To generate from the last checkpoint instead:
+
+```bash
+python run.py --model-prefix=some-prefix- --checkpoint=last
+```
+
+Generation still uses greedy decoding and produces 1,000 new bytes for each of the five configured prompts. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports progress, total elapsed time, training and validation bytes/sec, and an estimate of remaining training-loop time. Generation throughput counts newly generated raw bytes, excluding the prompt and any UTF-8 replacement characters in the displayed text.
+
+Both commands immediately mirror console output into `docs/run/<date-time>-<model-prefix>.md` (using `default` for an empty prefix). The timestamp includes microseconds to distinguish separate invocations. Logs include the timezone, command, configuration, measurements, and generated text; errors and interrupted runs retain the output already written.
 
 ## Sparse MoE
 
@@ -88,6 +105,6 @@ A 10-step smoke run on the RTX 3060 with PyTorch `2.13.0+cu132` used the earlier
 
 ## Recording future runs
 
-Create `docs/runs/YYYY-MM-DD_HH-MM-SS_<experiment>.md` using the actual run start time and a short descriptive experiment name, for example `2026-10-10_13-13-05_sparse-moe_8e_top2.md`. Keep the timezone, exact code revision, and any uncommitted source changes inside the report. Existing historical report filenames retain their commit suffixes. If two runs start in the same second, append a run suffix.
+The scripts automatically save transcripts under `docs/run/`. For a curated experiment report, create `docs/runs/YYYY-MM-DD_HH-MM-SS_<experiment>.md` using the actual run start time and a short descriptive experiment name, for example `2026-10-10_13-13-05_sparse-moe_8e_top2.md`. Keep the timezone, exact code revision, and any uncommitted source changes inside the report. Existing historical report filenames retain their commit suffixes. If two reports use the same second, append a run suffix.
 
 Use the [run report template](docs/runs/TEMPLATE.md), save the complete terminal output and configuration, and add one row to the overview above. Record architecture changes (including MoE routing and total/active parameters or offloading details where applicable), dataset splits, sampled training bytes, throughput, seed, optimizer settings, environment/GPU, parameter count, elapsed time, peak VRAM, best/final validation loss, checkpoint step, and generated text. Keep each experiment's checkpoints under distinct names if you want to retain them.

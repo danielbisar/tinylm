@@ -6,3 +6,5 @@ best_model.pt
 last_model.pt
 
 /artifacts/
+
+/model/
