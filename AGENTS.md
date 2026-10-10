@@ -8,8 +8,8 @@ TinyLM is a byte-level PyTorch language model with shared transformer blocks and
 - `core.py`: editable `Config`, byte tokenizer, checkpoint storage, timing, and logging.
 - `train.py` / `run.py`: training and checkpoint-based generation entry points.
 - `tests/`: MoE correctness and workflow regression tests.
-- `docs/runs/`: curated experiment reports and `TEMPLATE.md`; `docs/research/`: research references.
-- `docs/run/`: automatically generated invocation logs. `model/` and `artifacts/` hold ignored checkpoints and experiment artifacts.
+- `docs/runs/`: automatically generated invocation logs, curated experiment reports, and `TEMPLATE.md`; `docs/research/`: research references.
+- `model/` and `artifacts/`: ignored checkpoints and experiment artifacts.
 
 ## Build, Test, and Development Commands
 

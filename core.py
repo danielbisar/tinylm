@@ -34,7 +34,7 @@ class Config:
     top_k: int = 2
     moe_aux_loss_weight: float = 0.01
 
-    validate_every: int = 1000
+    validate_every: int = 500
     validation_batches: int = 10
     final_validation_batches: int = 100
 
@@ -59,7 +59,7 @@ class Config:
     )
 
     model_directory: str = "model"
-    log_directory: str = "docs/run"
+    log_directory: str = "docs/runs"
 
     @property
     def heads(self):

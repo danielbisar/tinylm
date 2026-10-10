@@ -83,7 +83,7 @@ python run.py --model-prefix=some-prefix- --checkpoint=last
 
 Generation uses greedy decoding until approximately `max_output_bytes=1000` newly decoded UTF-8 bytes for each of the five configured prompts, possibly exceeding the budget by the final token. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports token loss and BPB; progress reports tokens processed, tokens/sec, estimated source-byte throughput based on the training corpus average, and remaining training-loop time. Generation reports generated tokens and decoded UTF-8 bytes, both rates excluding the prompt. Invalid generated UTF-8 is replaced, and replacement characters count toward the displayed byte budget; this differs from historical raw-byte generation counts.
 
-Both commands immediately mirror console output into `docs/run/<date-time>-<model-prefix>.md` (using `default` for an empty prefix). The timestamp includes microseconds to distinguish separate invocations. Logs include the timezone, command, configuration, measurements, and generated text; errors and interrupted runs retain the output already written.
+Both commands immediately mirror console output into `docs/runs/<date-time>-<model-prefix>.md` (using `default` for an empty prefix). The timestamp includes microseconds to distinguish separate invocations. Logs include the timezone, command, configuration, measurements, and generated text; errors and interrupted runs retain the output already written.
 
 ## Optional byte-level BPE experiment
 
@@ -166,6 +166,6 @@ A 10-step smoke run on the RTX 3060 with PyTorch `2.13.0+cu132` used the earlier
 
 ## Recording future runs
 
-The scripts automatically save transcripts under `docs/run/`. For a curated experiment report, create `docs/runs/YYYY-MM-DD_HH-MM-SS_<experiment>.md` using the actual run start time and a short descriptive experiment name, for example `2026-10-10_13-13-05_sparse-moe_8e_top2.md`. Keep the timezone, exact code revision, and any uncommitted source changes inside the report. Existing historical report filenames retain their commit suffixes. If two reports use the same second, append a run suffix.
+The scripts automatically save transcripts under `docs/runs/`. For a curated experiment report, create `docs/runs/YYYY-MM-DD_HH-MM-SS_<experiment>.md` using the actual run start time and a short descriptive experiment name, for example `2026-10-10_13-13-05_sparse-moe_8e_top2.md`. Keep the timezone, exact code revision, and any uncommitted source changes inside the report. Existing historical report filenames retain their commit suffixes. If two reports use the same second, append a run suffix.
 
 Use the [run report template](docs/runs/TEMPLATE.md), save the complete terminal output and configuration, and add one row to the overview above. Record architecture changes (including MoE routing and total/active parameters or offloading details where applicable), dataset splits, sampled training bytes, throughput, seed, optimizer settings, environment/GPU, parameter count, elapsed time, peak VRAM, best/final validation loss, checkpoint step, and generated text. Keep each experiment's checkpoints under distinct names if you want to retain them.

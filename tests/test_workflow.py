@@ -40,7 +40,7 @@ class WorkflowTests(unittest.TestCase):
             max_output_bytes=3,
             prompts=("é",),
             model_directory=str(directory / "model"),
-            log_directory=str(directory / "docs/run"),
+            log_directory=str(directory / "docs/runs"),
         )
 
     def test_either_checkpoint_aborts_before_data_loading(self):
