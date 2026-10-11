@@ -168,9 +168,27 @@ def print_progress(
     )
 
 
-def print_training_config(config):
+def configure_training_budget(config, average_bytes_per_token):
+    if config.target_training_bytes is not None:
+        tokens_per_step = config.batch_size * config.context
+        config.steps = round(
+            config.target_training_bytes
+            / (tokens_per_step * average_bytes_per_token)
+        )
+        config.validate_every = max(1, config.steps // 10)
+
+
+def print_training_config(config, average_bytes_per_token):
     print("Training")
-    print(f"  Batch size: {config.batch_size}; steps: {config.steps:,}")
+    target = config.target_training_bytes
+    tokens_per_step = config.batch_size * config.context
+    estimated_bytes = config.steps * tokens_per_step * average_bytes_per_token
+    budget_label = f"{target:,}" if target is not None else "None (manual settings)"
+    print(f"  Target source-byte budget: {budget_label}")
+    print(f"  Effective training steps: {config.steps:,}")
+    print(f"  Tokens per step: {tokens_per_step:,}")
+    print(f"  Estimated source bytes processed: {estimated_bytes:,.2f}")
+    print(f"  Batch size: {config.batch_size}")
     print(f"  Validate every: {config.validate_every:,} steps")
     print(f"  Validation batches: {config.validation_batches}")
     print(f"  Final validation batches: {config.final_validation_batches}")
@@ -182,7 +200,6 @@ def print_training_config(config):
 def train(config, repository, total_started):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed_random(config.seed)
-    print_training_config(config)
     training_text = load_source(config, config.train_split)
     tokenizer = create_tokenizer(config, training_text)
     config.vocab_size = tokenizer.vocab_size
@@ -197,6 +214,8 @@ def train(config, repository, total_started):
         "validation": source_statistics(validation_data, tokenizer),
     }
     average_bytes_per_token = data_metadata["training"]["average_bytes_per_token"]
+    configure_training_budget(config, average_bytes_per_token)
+    print_training_config(config, average_bytes_per_token)
     model = build_model(config.model_config(), device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
     print_model_info(model, config.model_config(), device, average_bytes_per_token)

@@ -24,6 +24,9 @@ from tinylm import TinyLM
 class Config:
     context: int = 256
     batch_size: int = 32
+
+    target_training_bytes: int | None = 81_920_000
+    # Manual settings used when target_training_bytes is None.
     steps: int = 10000
 
     dim: int = 384  # Size of the internal vector.
@@ -34,7 +37,7 @@ class Config:
     top_k: int = 2
     moe_aux_loss_weight: float = 0.01
 
-    validate_every: int = 500
+    validate_every: int = 1000
     validation_batches: int = 10
     final_validation_batches: int = 100
 

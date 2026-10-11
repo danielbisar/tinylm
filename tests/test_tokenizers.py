@@ -159,6 +159,26 @@ class TokenizerTests(unittest.TestCase):
             loss, bpb = train.validation_loss(ConstantModel(tokenizer.vocab_size), data, config, 'cpu', 2, tokenizer.byte_lengths)
         self.assertAlmostEqual(bpb, loss * 2 * context / (math.log(2) * target_bytes), places=6)
 
+    def test_bpe_budget_uses_measured_training_stream_average(self):
+        steps = []
+        for text in ('Hello world!\n' * 40, 'Unseen 世界 🙂\n' * 40):
+            with self.subTest(text=text[:20]):
+                data = torch.tensor(self.tokenizer.encode(text))
+                statistics = train.source_statistics(data, self.tokenizer)
+                average = len(text.encode('utf-8')) / len(data)
+                self.assertEqual(statistics['average_bytes_per_token'], average)
+                config = Config(tokenizer_type='bpe', steps=999, validate_every=17)
+                train.configure_training_budget(config, statistics['average_bytes_per_token'])
+                bytes_per_step = config.batch_size * config.context * average
+                self.assertEqual(config.steps, round(81_920_000 / bytes_per_step))
+                self.assertEqual(config.validate_every, max(1, config.steps // 10))
+                self.assertLessEqual(
+                    abs(config.steps * bytes_per_step - 81_920_000),
+                    bytes_per_step / 2,
+                )
+                steps.append(config.steps)
+        self.assertNotEqual(*steps)
+
     def test_generation_stops_by_bytes_for_multibyte_bpe_token(self):
         tokenizer = self.tokenizer
         token = max(range(tokenizer.vocab_size), key=lambda i: tokenizer.byte_lengths[i])
@@ -187,13 +207,21 @@ class TokenizerTests(unittest.TestCase):
     def test_bpe_workflow_trains_only_on_training_source(self):
         training_text = 'Hello hello world!\n' * 40
         validation_text = 'Unseen 世界 🙂 validation!\n' * 20
+        expected_tokenizer = BPETokenizer.train(training_text, 300, 2)
+        average = len(training_text.encode('utf-8')) / len(expected_tokenizer.encode(training_text))
+        budget = round(2.4 * 2 * 8 * average)
         with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
-            config = self.small_config(tokenizer_type='bpe', bpe_vocab_size=300, steps=1, validate_every=1, validation_batches=1, final_validation_batches=1)
+            config = self.small_config(tokenizer_type='bpe', bpe_vocab_size=300, target_training_bytes=budget, steps=99, validate_every=17, validation_batches=1, final_validation_batches=1)
             repository = ModelRepository(directory)
             with patch('train.load_source', side_effect=[training_text, validation_text]), patch('train.create_tokenizer', wraps=create_tokenizer) as factory, patch.object(torch.cuda, 'is_available', return_value=False):
                 train.train(config, repository, time.perf_counter())
             factory.assert_called_once_with(config, training_text)
             model, checkpoint = repository.load(repository.last_filename, 'cpu')
+            self.assertEqual(checkpoint['step'], 2)
+            self.assertEqual(checkpoint['run_config']['steps'], 2)
+            self.assertEqual(checkpoint['run_config']['validate_every'], 1)
+            self.assertEqual(checkpoint['run_config']['target_training_bytes'], budget)
+            self.assertEqual(checkpoint['data_metadata']['training']['average_bytes_per_token'], average)
             tokenizer = tokenizer_from_metadata(checkpoint['tokenizer'])
             self.assertEqual(checkpoint['data_metadata']['validation']['raw_utf8_bytes'], len(validation_text.encode('utf-8')))
             self.assertEqual(tokenizer.decode(tokenizer.encode(validation_text)), validation_text)

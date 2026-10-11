@@ -34,6 +34,7 @@ class WorkflowTests(unittest.TestCase):
             num_experts=2,
             top_k=1,
             steps=2,
+            target_training_bytes=None,
             validate_every=1,
             validation_batches=1,
             final_validation_batches=3,
@@ -100,6 +101,9 @@ class WorkflowTests(unittest.TestCase):
                 )
                 last = torch.load(model_directory / "test-last_model.pt")
                 self.assertEqual(last["step"], 2)
+                self.assertEqual(last["run_config"]["steps"], 2)
+                self.assertEqual(last["run_config"]["validate_every"], 1)
+                self.assertIsNone(last["run_config"]["target_training_bytes"])
                 self.assertEqual(last["config"]["dim"], 16)
                 self.assertEqual(
                     last["run_config"]["final_validation_batches"], 3,
@@ -142,6 +146,38 @@ class WorkflowTests(unittest.TestCase):
             with timer.measure():
                 pass
         self.assertEqual(timer.elapsed, 7)
+
+    def test_byte_budget_matches_10000_step_baseline(self):
+        config = Config(steps=17, validate_every=3)
+        data = torch.tensor(ByteTokenizer().encode("Hällo 世界 🙂\n"))
+        average = train.source_statistics(data, ByteTokenizer())["average_bytes_per_token"]
+        train.configure_training_budget(config, average)
+        self.assertEqual(config.steps, 10000)
+        self.assertEqual(config.validate_every, 1000)
+        self.assertEqual(config.steps * config.batch_size * config.context, 81_920_000)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            train.print_training_config(config, average)
+        for line in (
+            "Target source-byte budget: 81,920,000",
+            "Effective training steps: 10,000",
+            "Tokens per step: 8,192",
+            "Estimated source bytes processed: 81,920,000.00",
+            "Validate every: 1,000 steps",
+        ):
+            self.assertIn(line, output.getvalue())
+
+    def test_validation_interval_follows_short_effective_run(self):
+        config = Config(target_training_bytes=7 * 8192, validate_every=1000)
+        train.configure_training_budget(config, 1.0)
+        self.assertEqual(config.steps, 7)
+        self.assertEqual(config.validate_every, 1)
+
+    def test_disabled_budget_preserves_manual_settings(self):
+        config = Config(target_training_bytes=None, steps=123, validate_every=7)
+        train.configure_training_budget(config, 3.7)
+        self.assertEqual(config.steps, 123)
+        self.assertEqual(config.validate_every, 7)
 
     def test_generation_counts_displayed_utf8_bytes_excluding_prompt(self):
         class InvalidByteModel(torch.nn.Module):
