@@ -79,7 +79,7 @@ def generate(
     return prompt + "".join(fragments), generated_tokens, output_bytes, elapsed
 
 
-def run(config, repository, filename, *, greedy=True, temperature=0.8, top_p=0.9):
+def run(config, repository, filename, *, greedy=False, temperature=0.7, top_p=0.9):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed_random(config.seed)
     model, checkpoint = repository.load(filename, device)
@@ -139,25 +139,25 @@ def main(argv=None):
     )
     parser.add_argument(
         "--greedy", action="store_true",
-        help="Use greedy decoding (the default); overrides sampling flags",
+        help="Use greedy decoding instead of sampling",
     )
     parser.add_argument(
         "--temperature", type=float,
-        help="Enable sampling with this positive temperature (sampling default: 0.8)",
+        help="Sampling temperatur (default: 0.7)",
     )
     parser.add_argument(
         "--top-p", type=float,
-        help="Enable nucleus sampling with this probability in (0, 1] (sampling default: 0.9)",
+        help="Nucleus sampling with this probability in (0, 1] (default: 0.9)",
     )
     parser.add_argument("--seed", type=int, help="Random seed (default: Config.seed)")
     args = parser.parse_args(argv)
-    temperature = 0.8 if args.temperature is None else args.temperature
+    temperature = 0.7 if args.temperature is None else args.temperature
     top_p = 0.9 if args.top_p is None else args.top_p
     if not math.isfinite(temperature) or temperature <= 0:
         parser.error("--temperature must be finite and greater than zero")
     if not math.isfinite(top_p) or not 0 < top_p <= 1:
         parser.error("--top-p must be in (0, 1]")
-    greedy = args.greedy or (args.temperature is None and args.top_p is None)
+    greedy = args.greedy
     config = Config()
     if args.seed is not None:
         config.seed = args.seed
