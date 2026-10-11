@@ -6,11 +6,11 @@ The baseline model embeds 256 byte values (optional locally trained BPE uses its
 
 ## Run overview
 
-Historical dense report dates below are commit timestamps in UTC+02:00; actual run start times were not recorded. The eight-expert top-2 MoE report uses its actual run start time in CEST (UTC+02:00); the eight-expert top-1, four-expert top-2, six-expert top-2, and sixteen-expert top-2 reports use the dates they were recorded because their run start times were not supplied. Each report records its configuration and preserves the available terminal output and experiment notes. `Blocks × passes` distinguishes unique parameter sets from repeated computation. `—` means no reliable measurement is available.
+Historical dense report dates below are commit timestamps in UTC+02:00; actual run start times were not recorded. The BPE reports use logged training start times in CEST (UTC+02:00). The eight-expert top-2 MoE report uses its actual run start time in CEST (UTC+02:00); the eight-expert top-1, four-expert top-2, six-expert top-2, and sixteen-expert top-2 reports use the dates they were recorded because their run start times were not supplied. Each report records its configuration and preserves the available terminal output and experiment notes. `Blocks × passes` distinguishes unique parameter sets from repeated computation. `—` means no reliable measurement is available.
 
-Loss is held-out next-byte cross-entropy (lower is better): final validation for early runs, best periodic validation after checkpointing was introduced. The first three runs have no held-out validation. Dataset size, training budget, validation sampling, and implementation changed between runs, so results are not all directly comparable. Peak VRAM is PyTorch's maximum allocated CUDA memory, reported as “MB” by the scripts but calculated in MiB. Earlier timings exclude final validation; checkpointed timings include periodic validation and checkpoint writes.
+Byte-row loss is held-out next-byte cross-entropy (lower is better): final validation for early runs, best periodic validation after checkpointing was introduced. BPE rows explicitly report best periodic validation BPB; their token losses are not comparable with byte losses. The first three runs have no held-out validation. Dataset size, training budget, validation sampling, and implementation changed between runs, so results are not all directly comparable. Peak VRAM is PyTorch's maximum allocated CUDA memory, reported as “MB” by the scripts but calculated in MiB. Earlier timings exclude final validation; checkpointed timings include periodic validation and checkpoint writes.
 
-| Report | Dim | Heads | Dim/head | Context | Blocks × passes | Norm | Feed-forward | Position encoding | Batch | Steps | Train split | Sampled training bytes | Parameters | Time | Bytes/sec | Peak VRAM (MiB) | Val loss | Comments |
+| Report | Dim | Heads | Dim/head | Context | Blocks × passes | Norm | Feed-forward | Position encoding | Batch | Steps | Train split | Sampled training bytes | Parameters | Time | Bytes/sec | Peak VRAM (MiB) | Val loss / BPB | Comments |
 |---|---:|---:|---:|---:|---:|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---|
 | [2026-10-09 22:36](docs/runs/2026-10-09_22-36_43c5c8a.md) | 128 | 4 | 32 | 64 | 1 × 1 | LayerNorm | None | None | 1 | 1,000 | toy | 64,000 | — | — | — | — | — | Attention-only toy model |
 | [2026-10-09 22:43](docs/runs/2026-10-09_22-43_556792e.md) | 128 | 4 | 32 | 64 | 1 × 1 | LayerNorm | GELU MLP | Learned position table | 1 | 1,000 | toy | 64,000 | — | — | — | — | — | Add transformer MLP and position table |
@@ -43,9 +43,12 @@ Loss is held-out next-byte cross-entropy (lower is better): final validation for
 | [2026-10-10 (start time unknown)](docs/runs/2026-10-10_sparse-moe_4e_top2.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 10,000 | 5% | 81,920,000 | 16,129,408 | 2149.92s | 38,104 | 3048.7 | 0.5863 | 4 experts/block; top-2; aux weight 0.01; ~9.05M active parameters/traversal |
 | [2026-10-10 (start time unknown)](docs/runs/2026-10-10_sparse-moe_6e_top2.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 10,000 | 5% | 81,920,000 | 23,209,600 | 2324.46s | 35,243 | 3177.9 | 0.5778 | 6 experts/block; top-2; aux weight 0.01; ~9.05M active parameters/traversal |
 | [2026-10-10 (start time unknown)](docs/runs/2026-10-10_sparse-moe_16e_top2.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 4,000 | 5% | 32,768,000 | 58,610,560 | 1100.73s | 29,769 | 3764.0 | 0.6412 | 16 experts/block; top-2; aux weight 0.01; ~9.07M active parameters/traversal; shorter 4k-step budget |
-| [2026-10-10 (start time unknown)](docs/runs/2026-10-10_sparse-moe_16e_top2_10000steps.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 10,000 | 5% | 81,920,000 | 58,610,560 | 2726.54s | 30,045 | 3762.7 | 0.5583 | 16 experts/block; top-2; aux weight 0.01; ~9.07M active parameters/traversal; five 1,000-byte greedy generations; note: saw much more actual bytes; so for the next runs we reduce step size to 2542, which would lead to about the same amount of bytes used for training as with bytes as input instead of BPE |
+| [2026-10-10 (start time unknown)](docs/runs/2026-10-10_sparse-moe_16e_top2_10000steps.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 10,000 | 5% | 81,920,000 | 58,610,560 | 2726.54s | 30,045 | 3762.7 | 0.5583 | 16 experts/block; top-2; aux weight 0.01; ~9.07M active parameters/traversal; five 1,000-byte greedy generations |
+| [2026-10-10 18:42:24](docs/runs/2026-10-10_18-42-24_bpe_4096.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 10,000 | 5% | ~322,361,363 | 61,563,520 | 2832.03s | 113,827 | 4030.4 | 0.5577 BPB | BPE 4,096; 16 experts/block; top-2; 10k steps; ~3.94× byte baseline source-byte budget; training-step timing |
+| [2026-10-11 09:53:47](docs/runs/2026-10-11_09-53-47_bpe_2048.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 2,776 | 5% | ~81,929,445 | 59,988,608 | 738.56s | 110,932 | 3887.7 | 0.6636 BPB | BPE 2,048; 16 experts/block; top-2; ~81.92M source-byte budget; training-step timing |
+| [2026-10-11 10:11:29](docs/runs/2026-10-11_10-11-29_bpe_8192.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 2,441 | 5% | ~81,905,513 | 64,713,344 | 705.49s | 116,097 | 4562.4 | 0.6519 BPB | BPE 8,192; 16 experts/block; top-2; ~81.92M source-byte budget; training-step timing |
 
-Sampled training bytes are `steps × batch size × context`, including repeated samples, rather than unique corpus size. Bytes/sec is copied from the terminal report when available; `~` marks throughput inferred from sampled bytes and the reported elapsed time. The stale-output revision has no reliable sampled-byte or throughput result.
+For byte rows, sampled training bytes are `steps × batch size × context`, including repeated samples, rather than unique corpus size. For BPE rows, this product counts tokens; estimated source bytes additionally multiply by the training corpus average bytes/token. BPE throughput and training time cover training steps only, whereas historical byte timings include periodic validation and checkpoint writes. Bytes/sec is copied from the terminal report when available; `~` marks throughput inferred from sampled bytes and the reported elapsed time. The stale-output revision has no reliable sampled-byte or throughput result.
 
 The Comments column records the main change for each run and can describe future MoE configurations (expert count, top-k routing, total/active parameters), offloading (which components and to which device), or other architecture/runtime changes. The historical feed-forward networks in this table are dense. The MoE rows record the implemented sparse configurations. Full architecture details, validation curves, and generated samples remain in the linked reports. The final width-512 experiment also changes heads from 6 to 8 to preserve 64 dimensions per head.
 
@@ -113,8 +116,24 @@ measured the intended TinyStories splits with an actual 4,096-entry vocabulary:
 | BPE 4,096 | 93,815,188 | 23,840,761 | 3.9351 | 3.9504 | 61,563,520 |
 
 This makes 256 BPE positions approximately 1,007 source bytes. The vocabulary
-adds 2,952,960 parameters solely in the embedding/output layers. Only a tiny
-two-step model smoke test was run; no BPE quality benchmark is available yet.
+adds 2,952,960 parameters solely in the embedding/output layers.
+
+The full BPE benchmarks are recorded in one report per vocabulary size, each
+combining training and generation output:
+
+| Vocabulary / report | Steps | Estimated sampled source bytes | Best BPB (step) | Final BPB | Training steps (s) | Peak VRAM (MiB) | Generated bytes/s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| [2,048](docs/runs/2026-10-11_09-53-47_bpe_2048.md) | 2,776 | 81,929,445 | 0.6636 (2,770) | 0.6660 | 738.56 | 3,887.7 | 104.44 |
+| [4,096](docs/runs/2026-10-10_18-42-24_bpe_4096.md) | 10,000 | 322,361,363 | 0.5577 (10,000) | 0.5590 | 2,832.03 | 4,030.4 | 121.47 |
+| [8,192](docs/runs/2026-10-11_10-11-29_bpe_8192.md) | 2,441 | 81,905,513 | 0.6519 (2,440) | 0.6523 | 705.49 | 4,562.4 | 122.54 |
+
+The 2,048 and 8,192 runs use the same approximate 81.92M source-byte budget.
+The 8,192 vocabulary achieved lower BPB and slightly shorter training time,
+with higher peak memory. The earlier 4,096 run used about 3.94 times that budget,
+so its lower BPB does not isolate vocabulary size. The byte baseline's 0.5583
+best token loss is approximately 0.8055 BPB. BPE also sees more source bytes per
+256-token context, and validation samples differ across tokenizations. All three
+BPE runs still show repetition in their five greedy generation samples.
 
 Every checkpoint embeds the complete tokenizer JSON, training settings, library
 version, vocabulary size, architecture, run settings, validation metrics, selection
