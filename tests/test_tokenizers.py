@@ -1,5 +1,6 @@
 import io
 import math
+import random
 from contextlib import redirect_stdout
 from pathlib import Path
 import tempfile
@@ -59,8 +60,183 @@ class TokenizerTests(unittest.TestCase):
         text = 'Hällo 世界 🙂\n\x00'
         self.assertEqual(tokenizer.decode(tokenizer.encode(text)), text)
         self.assertEqual(tokenizer.encode(text), list(text.encode('utf-8')))
-        self.assertEqual(tokenizer.vocab_size, 256)
+        self.assertEqual(tokenizer.vocab_size, 257)
         self.assertEqual(b''.join(tokenizer.token_bytes(i) for i in range(256)), bytes(range(256)))
+
+    def test_eos_is_special_and_has_zero_byte_payload(self):
+        from tokenizers import Tokenizer
+
+        tokenizer = self.tokenizer
+        eos = tokenizer.eos_token_id
+        self.assertEqual(tokenizer.eos_token, '<|endoftext|>')
+        self.assertEqual(tokenizer.tokenizer.token_to_id(tokenizer.eos_token), eos)
+        hf_tokenizer = Tokenizer.from_str(tokenizer.metadata['serialization'])
+        hf_tokenizer.encode_special_tokens = False
+        self.assertEqual(hf_tokenizer.encode(tokenizer.eos_token).ids, [eos])
+        self.assertTrue(hf_tokenizer.get_added_tokens_decoder()[eos].special)
+        for tokenizer in (tokenizer, ByteTokenizer()):
+            self.assertEqual(tokenizer.token_bytes(tokenizer.eos_token_id), b'')
+            self.assertEqual(tokenizer.byte_lengths[tokenizer.eos_token_id], 0)
+            self.assertEqual(tokenizer.decode([tokenizer.eos_token_id]), '')
+            literal = tokenizer.eos_token
+            self.assertNotIn(tokenizer.eos_token_id, tokenizer.encode(literal))
+            self.assertEqual(tokenizer.decode(tokenizer.encode(literal)), literal)
+
+    def test_bpe_8192_is_total_vocabulary_including_eos(self):
+        rng = random.Random(42)
+        documents = [''.join(rng.choices('abcdefghijklmnopqrstuvwxyz', k=20))
+                     for _ in range(10000)]
+        tokenizer = BPETokenizer.train(documents, 8192, 1)
+        self.assertEqual(tokenizer.vocab_size, 8192)
+        config = self.small_config(vocab_size=tokenizer.vocab_size)
+        model = build_model(config.model_config(), 'cpu')
+        self.assertEqual(model.token_embedding.num_embeddings, 8192)
+        self.assertEqual(model.output.out_features, 8192)
+        from tokenizers.pre_tokenizers import ByteLevel
+        raw_tokens = [tokenizer.tokenizer.token_to_id(symbol)
+                      for symbol in ByteLevel.alphabet()]
+        self.assertEqual(set(tokenizer.token_bytes(i) for i in raw_tokens),
+                         {bytes([i]) for i in range(256)})
+        with self.assertRaises(ValueError):
+            BPETokenizer.train(documents, 256)
+
+    def test_documents_have_one_eos_and_exact_source_statistics(self):
+        documents = ['Hello', '', '世界', '<|endoftext|>', '\x00']
+        for tokenizer in (self.tokenizer, ByteTokenizer()):
+            with self.subTest(type=tokenizer.metadata['type']):
+                ids = train.encode_documents(iter(documents), tokenizer)
+                expected = [token for doc in documents
+                            for token in tokenizer.encode(doc) + [tokenizer.eos_token_id]]
+                self.assertEqual(ids, expected)
+                self.assertEqual(ids.count(tokenizer.eos_token_id), len(documents))
+                raw_bytes = sum(len(doc.encode('utf-8')) for doc in documents)
+                statistics = train.source_statistics(torch.tensor(ids), tokenizer)
+                self.assertEqual(statistics['raw_utf8_bytes'], raw_bytes)
+                self.assertEqual(statistics['average_bytes_per_token'], raw_bytes / len(ids))
+                with redirect_stdout(io.StringIO()):
+                    data = train.load_data(Config(), 'unused', tokenizer, documents)
+                self.assertEqual(data.tolist(), ids)
+                self.assertEqual(train.source_statistics(torch.tensor([], dtype=torch.long), tokenizer)['average_bytes_per_token'], 0)
+
+    def test_bpe_training_and_encoding_do_not_merge_across_documents(self):
+        tokenizer = BPETokenizer.train(['a', 'b'] * 20, 300, 1)
+        self.assertNotIn('ab', tokenizer.tokenizer.get_vocab())
+        ids = train.encode_documents(['a', 'b'], tokenizer)
+        self.assertEqual(ids, tokenizer.encode('a') + [tokenizer.eos_token_id]
+                         + tokenizer.encode('b') + [tokenizer.eos_token_id])
+
+    def test_load_source_preserves_dataset_items(self):
+        documents = ['first', '', 'second\nline']
+        with patch('datasets.load_dataset', return_value={'text': documents}) as load:
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(train.load_source(Config(dataset_name='generic'), 'train'), documents)
+        load.assert_called_once_with('generic', split='train')
+
+    def test_eos_byte_metadata_roundtrip_and_legacy_metadata(self):
+        tokenizer = ByteTokenizer()
+        restored = tokenizer_from_metadata(tokenizer.metadata)
+        self.assertEqual(restored.eos_token_id, 256)
+        self.assertEqual(restored.byte_lengths, tokenizer.byte_lengths)
+        self.assertEqual(restored.metadata, tokenizer.metadata)
+        legacy = tokenizer_from_metadata({'type': 'byte', 'encoding': 'utf-8', 'vocab_size': 256})
+        self.assertIsNone(legacy.eos_token_id)
+        self.assertEqual(legacy.vocab_size, 256)
+        for i in range(256):
+            self.assertEqual(tokenizer.token_bytes(i), bytes([i]))
+            self.assertEqual(legacy.token_bytes(i), bytes([i]))
+
+    def test_legacy_bpe_checkpoint_without_eos(self):
+        from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
+
+        hf_tokenizer = Tokenizer(models.BPE())
+        hf_tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+        hf_tokenizer.decoder = decoders.ByteLevel()
+        hf_tokenizer.train_from_iterator(['hello world ' * 20], trainers.BpeTrainer(
+            vocab_size=300, initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+            show_progress=False,
+        ))
+        metadata = {'type': 'bpe', 'vocab_size': hf_tokenizer.get_vocab_size(),
+                    'training_config': {'vocab_size': 300, 'min_frequency': 2},
+                    'serialization': hf_tokenizer.to_str()}
+        tokenizer = tokenizer_from_metadata(metadata)
+        self.assertIsNone(tokenizer.eos_token_id)
+        config = self.small_config(vocab_size=tokenizer.vocab_size)
+        model = build_model(config.model_config(), 'cpu')
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
+            repository = ModelRepository(directory)
+            torch.save({'model': model.state_dict(), 'config': config.model_config(),
+                        'step': 1, 'tokenizer': metadata},
+                       Path(directory) / repository.best_filename)
+            restored, checkpoint = repository.load(repository.best_filename, 'cpu')
+        tokenizer = tokenizer_from_metadata(checkpoint['tokenizer'])
+        token = tokenizer.encode('x')[0]
+        result = generate(ConstantModel(tokenizer.vocab_size, token), tokenizer,
+                          'hello', 3, greedy=True, return_stop_reason=True)
+        self.assertEqual(result[0], 'helloxxx')
+        self.assertEqual(result[-1], 'max_output_bytes')
+        self.assertEqual(restored.output.out_features, tokenizer.vocab_size)
+
+    def test_eos_bpb_accounts_for_target_bytes_only(self):
+        tokenizer = ByteTokenizer()
+        config = self.small_config(vocab_size=257)
+        config.context = 2
+        config.batch_size = 1
+        data = torch.tensor(train.encode_documents(['ab', 'c'], tokenizer))
+        # Targets are b, EOS: two predictions but just one source byte.
+        with patch('train.torch.randint', return_value=torch.tensor([0])):
+            loss, bpb = train.validation_loss(ConstantModel(257), data, config, 'cpu', 1, tokenizer.byte_lengths)
+        self.assertAlmostEqual(bpb, 2 * loss / math.log(2))
+        eos_only = torch.full((10,), tokenizer.eos_token_id)
+        loss, bpb = train.validation_loss(ConstantModel(257), eos_only, config, 'cpu', 1, tokenizer.byte_lengths)
+        self.assertTrue(math.isfinite(loss))
+        self.assertEqual(bpb, float('inf'))
+        with self.assertRaises(ValueError):
+            train.configure_training_budget(Config(), 0)
+
+    def test_generation_stops_at_eos_before_payload_lookup(self):
+        for tokenizer in (ByteTokenizer(), self.tokenizer):
+            for greedy in (True, False):
+                with self.subTest(type=tokenizer.metadata['type'], greedy=greedy):
+                    model = ConstantModel(tokenizer.vocab_size, tokenizer.eos_token_id)
+                    with patch.object(tokenizer, 'token_bytes', side_effect=AssertionError('EOS payload lookup')):
+                        result = generate(model, tokenizer, 'prompt', 10, greedy=greedy, return_stop_reason=True)
+                    self.assertEqual(result[:3], ('prompt', 0, 0))
+                    self.assertEqual(result[-1], 'EOS')
+
+    def test_generation_emits_text_then_eos_or_byte_limit(self):
+        tokenizer = ByteTokenizer()
+
+        class SequenceModel(ConstantModel):
+            def __init__(self):
+                super().__init__(tokenizer.vocab_size)
+                self.steps = iter([ord('a'), tokenizer.eos_token_id])
+
+            def forward(self, x):
+                self.token = next(self.steps)
+                return super().forward(x)
+
+        result = generate(SequenceModel(), tokenizer, 'p', 10, greedy=True, return_stop_reason=True)
+        self.assertEqual(result[:3], ('pa', 1, 1))
+        self.assertEqual(result[-1], 'EOS')
+        result = generate(SequenceModel(), tokenizer, 'p', 1, greedy=True, return_stop_reason=True)
+        self.assertEqual(result[:3], ('pa', 1, 1))
+        self.assertEqual(result[-1], 'max_output_bytes')
+
+    def test_eos_flushes_preceding_incomplete_utf8_without_decoding_eos(self):
+        tokenizer = ByteTokenizer()
+
+        class SequenceModel(ConstantModel):
+            def __init__(self):
+                super().__init__(tokenizer.vocab_size)
+                self.steps = iter([0xf0, tokenizer.eos_token_id])
+
+            def forward(self, x):
+                self.token = next(self.steps)
+                return super().forward(x)
+
+        result = generate(SequenceModel(), tokenizer, 'p', 10, greedy=True, return_stop_reason=True)
+        self.assertEqual(result[:3], ('p\ufffd', 1, 3))
+        self.assertEqual(result[-1], 'EOS')
 
     def test_bpe_ascii_round_trip_without_normalization(self):
         for text in ('Hello world!', '  Hello\tworld!\n\n ', '', '\r\n'):
@@ -107,6 +283,7 @@ class TokenizerTests(unittest.TestCase):
         text = 'Hällo 世界 🙂\nHello there!'
         self.assertEqual(restored.encode(text), tokenizer.encode(text))
         self.assertEqual(restored.byte_lengths, tokenizer.byte_lengths)
+        self.assertEqual(restored.eos_token_id, tokenizer.eos_token_id)
         self.assertEqual(checkpoint['selection_metric'], 'bpb')
         ids = torch.tensor([tokenizer.encode('Hello')])
         torch.testing.assert_close(restored_model(ids)[0], model(ids)[0])
@@ -122,6 +299,10 @@ class TokenizerTests(unittest.TestCase):
             restored_model, checkpoint = repository.load(repository.best_filename, 'cpu')
         self.assertEqual(restored_model.output.out_features, 256)
         self.assertEqual(checkpoint['config']['vocab_size'], 256)
+        legacy = tokenizer_from_metadata({'type': 'byte', 'vocab_size': 256})
+        result = generate(ConstantModel(256, 0), legacy, 'p', 2, greedy=True, return_stop_reason=True)
+        self.assertEqual(result[:3], ('p\x00\x00', 2, 2))
+        self.assertEqual(result[-1], 'max_output_bytes')
 
     def test_checkpoint_rejects_mismatched_vocabulary(self):
         config = self.small_config(vocab_size=300)
@@ -205,10 +386,10 @@ class TokenizerTests(unittest.TestCase):
         self.assertEqual((text, tokens, byte_count), ('é🙂', 4, 4))
 
     def test_bpe_workflow_trains_only_on_training_source(self):
-        training_text = 'Hello hello world!\n' * 40
-        validation_text = 'Unseen 世界 🙂 validation!\n' * 20
+        training_text = ['Hello hello world!\n' * 20] * 2
+        validation_text = ['Unseen 世界 🙂 validation!\n' * 10] * 2
         expected_tokenizer = BPETokenizer.train(training_text, 300, 2)
-        average = len(training_text.encode('utf-8')) / len(expected_tokenizer.encode(training_text))
+        average = sum(len(doc.encode('utf-8')) for doc in training_text) / len(train.encode_documents(training_text, expected_tokenizer))
         budget = round(2.4 * 2 * 8 * average)
         with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
             config = self.small_config(tokenizer_type='bpe', bpe_vocab_size=300, target_training_bytes=budget, steps=99, validate_every=17, validation_batches=1, final_validation_batches=1)
@@ -223,10 +404,11 @@ class TokenizerTests(unittest.TestCase):
             self.assertEqual(checkpoint['run_config']['target_training_bytes'], budget)
             self.assertEqual(checkpoint['data_metadata']['training']['average_bytes_per_token'], average)
             tokenizer = tokenizer_from_metadata(checkpoint['tokenizer'])
-            self.assertEqual(checkpoint['data_metadata']['validation']['raw_utf8_bytes'], len(validation_text.encode('utf-8')))
-            self.assertEqual(tokenizer.decode(tokenizer.encode(validation_text)), validation_text)
+            self.assertEqual(checkpoint['data_metadata']['validation']['raw_utf8_bytes'], sum(len(doc.encode('utf-8')) for doc in validation_text))
+            for document in validation_text:
+                self.assertEqual(tokenizer.decode(tokenizer.encode(document)), document)
             result = generate(model, tokenizer, 'Hello', 5)
-            self.assertGreaterEqual(result[2], 5)
+            self.assertGreaterEqual(result[2], 0)
             # Editable defaults deliberately say byte/256; generation must
             # infer BPE and its model vocabulary entirely from the checkpoint.
             generation_config = Config(max_output_bytes=5, prompts=("Hällo 世界 🙂",))

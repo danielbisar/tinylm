@@ -86,30 +86,51 @@ class Config:
         }
 
 
-class ByteTokenizer:
-    """One token per UTF-8 byte; also the fallback for legacy checkpoints."""
+EOS_TOKEN = "<|endoftext|>"
+LEGACY_BYTE_METADATA = {"type": "byte", "encoding": "utf-8", "vocab_size": 256}
 
-    metadata = {"type": "byte", "encoding": "utf-8", "vocab_size": 256}
-    vocab_size = 256
-    byte_lengths = (1,) * 256
+
+class ByteTokenizer:
+    """One token per UTF-8 byte, plus an optional document boundary."""
+
+    eos_token = EOS_TOKEN
+
+    def __init__(self, with_eos=True):
+        self.eos_token_id = 256 if with_eos else None
+        self.vocab_size = 257 if with_eos else 256
+        self.byte_lengths = (1,) * 256 + ((0,) if with_eos else ())
+        self.metadata = dict(LEGACY_BYTE_METADATA, vocab_size=self.vocab_size)
+        if with_eos:
+            self.metadata.update(eos_token=self.eos_token, eos_token_id=self.eos_token_id)
 
     def encode(self, text):
         return list(text.encode("utf-8"))
 
     def decode(self, tokens):
-        return bytes(tokens).decode("utf-8", errors="replace")
+        return b"".join(self.token_bytes(token) for token in tokens).decode(
+            "utf-8", errors="replace",
+        )
 
     def token_bytes(self, token):
-        return bytes([token])
+        return b"" if token == self.eos_token_id else bytes([token])
 
 
 class BPETokenizer:
-    """Locally trained BPE with reversible ByteLevel symbols and no specials."""
+    """Locally trained BPE with reversible ByteLevel symbols and optional EOS."""
 
     def __init__(self, tokenizer, training_config):
         self.tokenizer = tokenizer
         self.training_config = training_config
         self.vocab_size = tokenizer.get_vocab_size()
+        self.eos_token = EOS_TOKEN
+        special_ids = {
+            token_id for token_id, token in tokenizer.get_added_tokens_decoder().items()
+            if token.special and token.content == self.eos_token
+        }
+        self.eos_token_id = next(iter(special_ids), None)
+        # Source text, including the literal special-token spelling, is bytes.
+        # Only programmatically appended IDs mark document boundaries.
+        tokenizer.encode_special_tokens = True
         # ByteLevel maps each byte to one Unicode symbol. Reconstruct its
         # reversible map, including the non-printing bytes mapped above 255.
         from tokenizers.pre_tokenizers import ByteLevel
@@ -121,17 +142,18 @@ class BPETokenizer:
         if set(symbols) != set(ByteLevel.alphabet()):
             raise ValueError("Unsupported ByteLevel alphabet")
         self._token_bytes = tuple(
+            b"" if index == self.eos_token_id else
             bytes(symbols[c] for c in tokenizer.id_to_token(index))
             for index in range(self.vocab_size)
         )
         self.byte_lengths = tuple(len(payload) for payload in self._token_bytes)
 
     @classmethod
-    def train(cls, text, vocab_size=4096, min_frequency=2):
+    def train(cls, documents, vocab_size=8192, min_frequency=2):
         from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
-        if vocab_size < 256 or min_frequency < 1:
-            raise ValueError("BPE requires vocab_size >= 256 and min_frequency >= 1")
+        if vocab_size < 257 or min_frequency < 1:
+            raise ValueError("BPE requires vocab_size >= 257 and min_frequency >= 1")
         tokenizer = Tokenizer(models.BPE())
         tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(
             add_prefix_space=False, use_regex=True,
@@ -141,12 +163,13 @@ class BPETokenizer:
             vocab_size=vocab_size,
             min_frequency=min_frequency,
             initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
-            special_tokens=[],
+            special_tokens=[EOS_TOKEN],
             show_progress=False,
         )
-        # Train on the same newline-joined stream we encode, so boundaries
-        # and whitespace have identical semantics. No validation text enters.
-        tokenizer.train_from_iterator([text], trainer=trainer)
+        # A string is a single document; iterables preserve document boundaries.
+        if isinstance(documents, str):
+            documents = [documents]
+        tokenizer.train_from_iterator(documents, trainer=trainer)
         return cls(tokenizer, {
             "vocab_size": vocab_size, "min_frequency": min_frequency,
         })
@@ -161,31 +184,38 @@ class BPETokenizer:
             "training_config": self.training_config,
             "library_version": tokenizers.__version__,
             "serialization": self.tokenizer.to_str(),
+            "eos_token": self.eos_token,
+            "eos_token_id": self.eos_token_id,
         }
 
     def encode(self, text):
         return self.tokenizer.encode(text, add_special_tokens=False).ids
 
     def decode(self, tokens):
-        return self.tokenizer.decode(list(tokens), skip_special_tokens=False)
+        return self.tokenizer.decode(list(tokens), skip_special_tokens=True)
 
     def token_bytes(self, token):
         return self._token_bytes[token]
 
 
-def create_tokenizer(config, training_text):
+def create_tokenizer(config, training_documents):
     if config.tokenizer_type == "byte":
         return ByteTokenizer()
     if config.tokenizer_type == "bpe":
         return BPETokenizer.train(
-            training_text, config.bpe_vocab_size, config.bpe_min_frequency,
+            training_documents, config.bpe_vocab_size, config.bpe_min_frequency,
         )
     raise ValueError(f"Unsupported tokenizer type: {config.tokenizer_type}")
 
 
 def tokenizer_from_metadata(metadata):
     if metadata.get("type") == "byte":
-        return ByteTokenizer()
+        tokenizer = ByteTokenizer(with_eos=metadata.get("eos_token_id") is not None)
+        if metadata.get("vocab_size", 256) != tokenizer.vocab_size:
+            raise ValueError("Checkpoint tokenizer vocabulary mismatch")
+        if metadata.get("eos_token_id") != tokenizer.eos_token_id:
+            raise ValueError("Checkpoint tokenizer EOS mismatch")
+        return tokenizer
     if metadata.get("type") == "bpe":
         from tokenizers import Tokenizer
 
@@ -195,6 +225,8 @@ def tokenizer_from_metadata(metadata):
         )
         if tokenizer.vocab_size != metadata["vocab_size"]:
             raise ValueError("Checkpoint tokenizer vocabulary mismatch")
+        if metadata.get("eos_token_id", tokenizer.eos_token_id) != tokenizer.eos_token_id:
+            raise ValueError("Checkpoint tokenizer EOS mismatch")
         return tokenizer
     raise ValueError("Unsupported tokenizer in checkpoint")
 
@@ -320,7 +352,7 @@ class ModelRepository:
     ):
         if tokenizer is None and config.tokenizer_type != "byte":
             raise ValueError("BPE checkpoints require the training tokenizer")
-        tokenizer = tokenizer or ByteTokenizer()
+        tokenizer = tokenizer or ByteTokenizer(with_eos=config.vocab_size == 257)
         if config.vocab_size != tokenizer.vocab_size:
             raise ValueError("Model and tokenizer vocabulary mismatch")
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -366,7 +398,7 @@ class ModelRepository:
             weights_only=True,
         )
         checkpoint.pop("optimizer", None)
-        metadata = checkpoint.get("tokenizer", ByteTokenizer.metadata)
+        metadata = checkpoint.get("tokenizer", LEGACY_BYTE_METADATA)
         tokenizer = tokenizer_from_metadata(metadata)
         checkpoint["config"].setdefault("vocab_size", 256)
         if checkpoint["config"]["vocab_size"] != tokenizer.vocab_size:

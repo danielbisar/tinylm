@@ -28,9 +28,11 @@ class SamplingTests(unittest.TestCase):
     def generate(self, **kwargs):
         return run.generate(SamplingModel(), ByteTokenizer(), "prompt", 32, **kwargs)
 
-    def test_default_and_explicit_greedy_do_not_sample(self):
+    def test_default_samples_and_explicit_greedy_does_not_sample(self):
+        with patch.object(torch, "multinomial", wraps=torch.multinomial) as sample:
+            self.generate()
+        self.assertEqual(sample.call_count, 32)
         with patch.object(torch, "multinomial") as sample:
-            self.assertEqual(self.generate()[0], "prompt" + "a" * 32)
             self.assertEqual(
                 self.generate(greedy=True, temperature=2, top_p=1)[0],
                 "prompt" + "a" * 32,
@@ -90,15 +92,15 @@ class SamplingTests(unittest.TestCase):
             for _ in range(2):
                 run.run(config, repository, "best_model.pt", greedy=False)
         self.assertEqual(texts[0], texts[1])
-        self.assertIn("Sampling; temperature=0.8; top-p=0.9; seed=7", output.getvalue())
+        self.assertIn("Sampling; temperature=0.7; top-p=0.9; seed=7", output.getvalue())
 
     def test_cli_modes_and_seed(self):
         cases = (
-            ([], True, 0.8, 0.9, 42),
-            (["--seed=7"], True, 0.8, 0.9, 7),
+            ([], False, 0.7, 0.9, 42),
+            (["--seed=7"], False, 0.7, 0.9, 7),
             (["--temperature=0.8", "--top-p=0.9", "--seed=42"], False, 0.8, 0.9, 42),
             (["--temperature=1.2"], False, 1.2, 0.9, 42),
-            (["--top-p=1"], False, 0.8, 1, 42),
+            (["--top-p=1"], False, 0.7, 1, 42),
             (["--greedy", "--temperature=0.8", "--top-p=0.9"], True, 0.8, 0.9, 42),
         )
         for arguments, greedy, temperature, top_p, seed in cases:

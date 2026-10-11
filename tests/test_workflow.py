@@ -108,7 +108,8 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(
                     last["run_config"]["final_validation_batches"], 3,
                 )
-                self.assertEqual(last["tokenizer"], ByteTokenizer.metadata)
+                self.assertEqual(last["tokenizer"], ByteTokenizer().metadata)
+                self.assertEqual(last["config"]["vocab_size"], 257)
                 self.assertIn("optimizer", last)
 
                 # Generation must use checkpoint dimensions, even after the
@@ -193,7 +194,7 @@ class WorkflowTests(unittest.TestCase):
                 return logits, torch.tensor(0.0)
 
         text, generated_tokens, generated_bytes, elapsed = run.generate(
-            InvalidByteModel(), ByteTokenizer(), "é", 3,
+            InvalidByteModel(), ByteTokenizer(), "é", 3, greedy=True,
         )
         self.assertEqual(text, "é" + "\ufffd")
         self.assertEqual(generated_tokens, 1)

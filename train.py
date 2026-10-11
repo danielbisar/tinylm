@@ -28,17 +28,29 @@ def load_source(config, split):
 
     print(f"Loading {config.dataset_name} ({split})...")
     dataset = load_dataset(config.dataset_name, split=split)
-    return "\n".join(dataset["text"])
+    return list(dataset["text"])
 
 
-def load_data(config, split, tokenizer, text=None):
-    if text is None:
-        text = load_source(config, split)
-    data = torch.tensor(tokenizer.encode(text), dtype=torch.long)
-    raw_bytes = len(text.encode("utf-8"))
-    print(f"  Raw UTF-8 bytes: {raw_bytes:,}")
+def encode_documents(documents, tokenizer):
+    if tokenizer.eos_token_id is None:
+        raise ValueError("Document encoding requires an EOS-aware tokenizer")
+    if isinstance(documents, str):
+        documents = [documents]
+    tokens = []
+    for document in documents:
+        tokens.extend(tokenizer.encode(document))
+        tokens.append(tokenizer.eos_token_id)
+    return tokens
+
+
+def load_data(config, split, tokenizer, documents=None):
+    if documents is None:
+        documents = load_source(config, split)
+    data = torch.tensor(encode_documents(documents, tokenizer), dtype=torch.long)
+    statistics = source_statistics(data, tokenizer)
+    print(f"  Raw UTF-8 bytes: {statistics['raw_utf8_bytes']:,}")
     print(f"  Tokens: {len(data):,}")
-    print(f"  Average bytes/token: {raw_bytes / len(data):.4f}")
+    print(f"  Average bytes/token: {statistics['average_bytes_per_token']:.4f}")
     return data
 
 
@@ -48,7 +60,7 @@ def source_statistics(data, tokenizer):
     return {
         "raw_utf8_bytes": raw_bytes,
         "tokens": len(data),
-        "average_bytes_per_token": raw_bytes / len(data),
+        "average_bytes_per_token": raw_bytes / len(data) if len(data) else 0.0,
     }
 
 
@@ -82,6 +94,9 @@ def train_step(model, optimizer, data, config, device):
 
 
 def bits_per_byte(total_nll_nats, source_bytes):
+    # No byte-normalized metric exists for an all-EOS target window.
+    if source_bytes == 0:
+        return float("inf")
     return total_nll_nats / (math.log(2) * source_bytes)
 
 
@@ -97,7 +112,7 @@ def validation_loss(model, data, config, device, batches, byte_lengths=None):
     # shifted targets, not inputs. Offsets can overlap within a UTF-8 codepoint
     # and per-token decoding replaces partial codepoints, so neither is used.
     # Summing target payload lengths accounts exactly for arbitrary windows
-    # in the actual joined encoded stream, including newline/space merges.
+    # in the document stream; EOS contributes zero source bytes.
     if byte_lengths is None:
         if config.vocab_size != 256:
             raise ValueError("Validation requires tokenizer byte lengths")
@@ -170,6 +185,8 @@ def print_progress(
 
 def configure_training_budget(config, average_bytes_per_token):
     if config.target_training_bytes is not None:
+        if average_bytes_per_token <= 0:
+            raise ValueError("Training source must contain source bytes")
         tokens_per_step = config.batch_size * config.context
         config.steps = round(
             config.target_training_bytes
@@ -200,13 +217,13 @@ def print_training_config(config, average_bytes_per_token):
 def train(config, repository, total_started):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed_random(config.seed)
-    training_text = load_source(config, config.train_split)
-    tokenizer = create_tokenizer(config, training_text)
+    training_documents = load_source(config, config.train_split)
+    tokenizer = create_tokenizer(config, training_documents)
     config.vocab_size = tokenizer.vocab_size
     print(f"Tokenizer: {config.tokenizer_type}; actual vocabulary: {tokenizer.vocab_size:,}")
     print("Training source:")
-    train_data = load_data(config, config.train_split, tokenizer, training_text)
-    del training_text
+    train_data = load_data(config, config.train_split, tokenizer, training_documents)
+    del training_documents
     print("Validation source:")
     validation_data = load_data(config, config.validation_split, tokenizer)
     data_metadata = {

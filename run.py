@@ -8,7 +8,7 @@ import time
 import torch
 
 from core import (
-    ByteTokenizer,
+    LEGACY_BYTE_METADATA,
     tokenizer_from_metadata,
     Config,
     ModelRepository,
@@ -23,7 +23,7 @@ from core import (
 @torch.no_grad()
 def generate(
     model, tokenizer, prompt, max_output_bytes, *, greedy=False,
-    temperature=0.7, top_p=0.9, generator=None,
+    temperature=0.7, top_p=0.9, generator=None, return_stop_reason=False,
 ):
     if not math.isfinite(temperature) or temperature <= 0:
         raise ValueError("temperature must be finite and greater than zero")
@@ -46,6 +46,7 @@ def generate(
     generated_tokens = 0
     synchronize(device)
     started = time.perf_counter()
+    stop_reason = "max_output_bytes"
     while output_bytes < max_output_bytes:
         logits, _ = model(x)
         next_logits = logits[:, -1, :]
@@ -65,6 +66,9 @@ def generate(
                 next_token = indices.gather(-1, sampled)
             else:
                 next_token = torch.multinomial(probabilities, 1, generator=generator)
+        if next_token.item() == tokenizer.eos_token_id:
+            stop_reason = "EOS"
+            break
         payload = tokenizer.token_bytes(next_token.item())
         fragment = decoder.decode(payload)
         fragments.append(fragment)
@@ -76,7 +80,8 @@ def generate(
     output_bytes += len(fragment.encode("utf-8"))
     synchronize(device)
     elapsed = time.perf_counter() - started
-    return prompt + "".join(fragments), generated_tokens, output_bytes, elapsed
+    result = (prompt + "".join(fragments), generated_tokens, output_bytes, elapsed)
+    return result + (stop_reason,) if return_stop_reason else result
 
 
 def run(config, repository, filename, *, greedy=False, temperature=0.7, top_p=0.9):
@@ -95,7 +100,7 @@ def run(config, repository, filename, *, greedy=False, temperature=0.7, top_p=0.
     if checkpoint.get("validation_bpb") is not None:
         print(f"  Validation BPB: {checkpoint['validation_bpb']:.4f}")
     print(f"  Selection metric: {checkpoint.get('selection_metric', 'token_loss (legacy)')}")
-    tokenizer = tokenizer_from_metadata(checkpoint.get("tokenizer", ByteTokenizer.metadata))
+    tokenizer = tokenizer_from_metadata(checkpoint.get("tokenizer", LEGACY_BYTE_METADATA))
     print(f"  Tokenizer: {tokenizer.metadata['type']}")
     total_tokens = 0
     total_bytes = 0
@@ -107,15 +112,16 @@ def run(config, repository, filename, *, greedy=False, temperature=0.7, top_p=0.
     print(f"  {decoding}; seed={config.seed}; {config.max_output_bytes:,} new UTF-8 bytes per prompt (approximately)")
     for prompt in config.prompts:
         print(f"\nPrompt: {prompt}\n")
-        text, output_tokens, output_bytes, elapsed = generate(
+        text, output_tokens, output_bytes, elapsed, stop_reason = generate(
             model, tokenizer, prompt, config.max_output_bytes,
             greedy=greedy, temperature=temperature, top_p=top_p, generator=generator,
+            return_stop_reason=True,
         )
         print(text)
         print(
             f"\n  Generated {output_tokens:,} tokens; {output_bytes:,} UTF-8 bytes "
             f"in {elapsed:.2f}s; {output_tokens / elapsed:,.2f} tokens/sec; "
-            f"{output_bytes / elapsed:,.2f} output bytes/sec"
+            f"{output_bytes / elapsed:,.2f} output bytes/sec; stopped: {stop_reason}"
         )
         total_tokens += output_tokens
         total_bytes += output_bytes
