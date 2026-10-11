@@ -2,6 +2,7 @@
 
 import argparse
 import codecs
+import math
 import time
 
 import torch
@@ -20,7 +21,14 @@ from core import (
 
 
 @torch.no_grad()
-def generate(model, tokenizer, prompt, max_output_bytes):
+def generate(
+    model, tokenizer, prompt, max_output_bytes, *, greedy=True,
+    temperature=0.8, top_p=0.9, generator=None,
+):
+    if not math.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be finite and greater than zero")
+    if not math.isfinite(top_p) or not 0 < top_p <= 1:
+        raise ValueError("top_p must be in (0, 1]")
     model.eval()
     device = next(model.parameters()).device
     prompt_tokens = tokenizer.encode(prompt)
@@ -40,7 +48,23 @@ def generate(model, tokenizer, prompt, max_output_bytes):
     started = time.perf_counter()
     while output_bytes < max_output_bytes:
         logits, _ = model(x)
-        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+        next_logits = logits[:, -1, :]
+        if greedy:
+            next_token = torch.argmax(next_logits, dim=-1, keepdim=True)
+        else:
+            probabilities = torch.softmax(next_logits.float() / temperature, dim=-1)
+            if top_p < 1:
+                probabilities, indices = probabilities.sort(dim=-1, descending=True)
+                # Keep the smallest prefix reaching top_p, including the token
+                # that crosses the threshold and always at least one token.
+                remove = probabilities.cumsum(dim=-1) - probabilities >= top_p
+                remove[..., 0] = False
+                probabilities = probabilities.masked_fill(remove, 0)
+                probabilities = probabilities / probabilities.sum(dim=-1, keepdim=True)
+                sampled = torch.multinomial(probabilities, 1, generator=generator)
+                next_token = indices.gather(-1, sampled)
+            else:
+                next_token = torch.multinomial(probabilities, 1, generator=generator)
         payload = tokenizer.token_bytes(next_token.item())
         fragment = decoder.decode(payload)
         fragments.append(fragment)
@@ -55,10 +79,11 @@ def generate(model, tokenizer, prompt, max_output_bytes):
     return prompt + "".join(fragments), generated_tokens, output_bytes, elapsed
 
 
-def run(config, repository, filename):
+def run(config, repository, filename, *, greedy=True, temperature=0.8, top_p=0.9):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed_random(config.seed)
     model, checkpoint = repository.load(filename, device)
+    generator = None if greedy else torch.Generator(device=device).manual_seed(config.seed)
     average_bytes_per_token = checkpoint.get("data_metadata", {}).get(
         "training", {},
     ).get("average_bytes_per_token", 1.0)
@@ -76,11 +101,15 @@ def run(config, repository, filename):
     total_bytes = 0
     total_seconds = 0.0
     print("\nGeneration")
-    print(f"  Greedy decoding; {config.max_output_bytes:,} new UTF-8 bytes per prompt (approximately)")
+    decoding = "Greedy decoding" if greedy else (
+        f"Sampling; temperature={temperature:g}; top-p={top_p:g}"
+    )
+    print(f"  {decoding}; seed={config.seed}; {config.max_output_bytes:,} new UTF-8 bytes per prompt (approximately)")
     for prompt in config.prompts:
         print(f"\nPrompt: {prompt}\n")
         text, output_tokens, output_bytes, elapsed = generate(
             model, tokenizer, prompt, config.max_output_bytes,
+            greedy=greedy, temperature=temperature, top_p=top_p, generator=generator,
         )
         print(text)
         print(
@@ -108,8 +137,30 @@ def main(argv=None):
         default="best",
         help="Checkpoint to generate from (default: best)",
     )
+    parser.add_argument(
+        "--greedy", action="store_true",
+        help="Use greedy decoding (the default); overrides sampling flags",
+    )
+    parser.add_argument(
+        "--temperature", type=float,
+        help="Enable sampling with this positive temperature (sampling default: 0.8)",
+    )
+    parser.add_argument(
+        "--top-p", type=float,
+        help="Enable nucleus sampling with this probability in (0, 1] (sampling default: 0.9)",
+    )
+    parser.add_argument("--seed", type=int, help="Random seed (default: Config.seed)")
     args = parser.parse_args(argv)
+    temperature = 0.8 if args.temperature is None else args.temperature
+    top_p = 0.9 if args.top_p is None else args.top_p
+    if not math.isfinite(temperature) or temperature <= 0:
+        parser.error("--temperature must be finite and greater than zero")
+    if not math.isfinite(top_p) or not 0 < top_p <= 1:
+        parser.error("--top-p must be in (0, 1]")
+    greedy = args.greedy or (args.temperature is None and args.top_p is None)
     config = Config()
+    if args.seed is not None:
+        config.seed = args.seed
     repository = ModelRepository(config.model_directory, args.model_prefix)
     filename = (
         repository.best_filename if args.checkpoint == "best"
@@ -117,7 +168,10 @@ def main(argv=None):
     )
     with log_run(config.log_directory, args.model_prefix, "generation"):
         try:
-            run(config, repository, filename)
+            run(
+                config, repository, filename,
+                greedy=greedy, temperature=temperature, top_p=top_p,
+            )
         except FileNotFoundError as error:
             print(f"Checkpoint not found: {error.filename}")
             return 1

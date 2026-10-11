@@ -86,7 +86,22 @@ python train.py --model-prefix=some-prefix- --force-overwrite
 python run.py --model-prefix=some-prefix- --checkpoint=last
 ```
 
-Generation uses greedy decoding until approximately `max_output_bytes=1000` newly decoded UTF-8 bytes for each of the five configured prompts, possibly exceeding the budget by the final token. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports token loss and BPB; progress reports tokens processed, tokens/sec, estimated source-byte throughput based on the training corpus average, and remaining training-loop time. Generation reports generated tokens and decoded UTF-8 bytes, both rates excluding the prompt. Invalid generated UTF-8 is replaced, and replacement characters count toward the displayed byte budget; this differs from historical raw-byte generation counts.
+Greedy decoding remains the benchmark default. Enable temperature and nucleus
+sampling with:
+
+```bash
+python run.py --model-prefix=some-prefix- --temperature=0.8 --top-p=0.9 --seed=42
+```
+
+Either `--temperature` or `--top-p` enables sampling; the omitted sampling
+setting defaults to 0.8 or 0.9 respectively. Temperature must be positive and
+finite; top-p must be in `(0, 1]` (`1` keeps the full vocabulary).
+`--greedy` explicitly selects greedy decoding and overrides sampling flags.
+`--seed` defaults to `Config.seed` and does not enable sampling by itself.
+Sampling is reproducible with the same seed, prompts, checkpoint, and device.
+The decoding settings and seed are recorded in generation output and logs.
+
+By default, generation uses greedy decoding until approximately `max_output_bytes=1000` newly decoded UTF-8 bytes for each of the five configured prompts, possibly exceeding the budget by the final token. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports token loss and BPB; progress reports tokens processed, tokens/sec, estimated source-byte throughput based on the training corpus average, and remaining training-loop time. Generation reports generated tokens and decoded UTF-8 bytes, both rates excluding the prompt. Invalid generated UTF-8 is replaced, and replacement characters count toward the displayed byte budget; this differs from historical raw-byte generation counts.
 
 Both commands immediately mirror console output into `docs/runs/<date-time>-<model-prefix>.md` (using `default` for an empty prefix). The timestamp includes microseconds to distinguish separate invocations. Logs include the timezone, command, configuration, measurements, and generated text; errors and interrupted runs retain the output already written.
 

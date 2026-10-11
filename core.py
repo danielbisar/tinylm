@@ -51,7 +51,7 @@ class Config:
     validation_split: str = "validation[:1%]"
 
     tokenizer_type: str = "byte"
-    bpe_vocab_size: int = 4096
+    bpe_vocab_size: int = 8192
     bpe_min_frequency: int = 2
     vocab_size: int = 256  # Set from the tokenizer before model construction.
 
