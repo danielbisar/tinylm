@@ -25,6 +25,9 @@ class Config:
     context: int = 256
     batch_size: int = 32
 
+    # represents approximately how many source bytes are sampled through training
+    # not unique bytes read from the dataset. Since batches are random, the same
+    # corpus locations can appear multiple times
     target_training_bytes: int | None = 81_920_000
     # Manual settings used when target_training_bytes is None.
     steps: int = 10000
