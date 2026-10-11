@@ -161,6 +161,14 @@ class TokenizerTests(unittest.TestCase):
         tokenizer = tokenizer_from_metadata(metadata)
         self.assertIsNone(tokenizer.eos_token_id)
         config = self.small_config(vocab_size=tokenizer.vocab_size)
+        metrics = train.validation_loss(
+            ConstantModel(tokenizer.vocab_size),
+            torch.tensor(tokenizer.encode('hello world ' * 20)), config, 'cpu', 2,
+            tokenizer.byte_lengths, eos_token_id=tokenizer.eos_token_id,
+            return_metrics=True,
+        )
+        self.assertEqual(metrics.text_bpb, metrics.sequence_bpb)
+        self.assertEqual(metrics.eos_target_count, 0)
         model = build_model(config.model_config(), 'cpu')
         with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
             repository = ModelRepository(directory)
@@ -184,14 +192,88 @@ class TokenizerTests(unittest.TestCase):
         data = torch.tensor(train.encode_documents(['ab', 'c'], tokenizer))
         # Targets are b, EOS: two predictions but just one source byte.
         with patch('train.torch.randint', return_value=torch.tensor([0])):
-            loss, bpb = train.validation_loss(ConstantModel(257), data, config, 'cpu', 1, tokenizer.byte_lengths)
-        self.assertAlmostEqual(bpb, 2 * loss / math.log(2))
+            loss, bpb = train.validation_loss(ConstantModel(257), data, config, 'cpu', 1, tokenizer.byte_lengths, eos_token_id=tokenizer.eos_token_id)
+        self.assertAlmostEqual(bpb, loss / math.log(2))
         eos_only = torch.full((10,), tokenizer.eos_token_id)
-        loss, bpb = train.validation_loss(ConstantModel(257), eos_only, config, 'cpu', 1, tokenizer.byte_lengths)
+        loss, bpb = train.validation_loss(ConstantModel(257), eos_only, config, 'cpu', 1, tokenizer.byte_lengths, eos_token_id=tokenizer.eos_token_id)
         self.assertTrue(math.isfinite(loss))
         self.assertEqual(bpb, float('inf'))
         with self.assertRaises(ValueError):
             train.configure_training_budget(Config(), 0)
+
+    def test_eos_nll_changes_sequence_bpb_but_not_text_bpb(self):
+        tokenizer = ByteTokenizer()
+        config = self.small_config(vocab_size=257)
+        config.context = 2
+        config.batch_size = 1
+        data = torch.tensor(train.encode_documents(['ab', 'c'], tokenizer))
+
+        class EOSModel(ConstantModel):
+            def __init__(self, eos_logit):
+                super().__init__(257)
+                self.eos_logit = eos_logit
+
+            def forward(self, x):
+                logits, aux = super().forward(x)
+                # Targets at the fixed start are b, EOS. Only EOS-position
+                # probabilities change; non-EOS target loss stays identical.
+                logits[:, 1, tokenizer.eos_token_id] = self.eos_logit
+                return logits, aux
+
+        results = []
+        for eos_logit in (10, -10):
+            with patch('train.torch.randint', return_value=torch.tensor([0])):
+                results.append(train.validation_loss(
+                    EOSModel(eos_logit), data, config, 'cpu', 1,
+                    tokenizer.byte_lengths, eos_token_id=tokenizer.eos_token_id,
+                    return_metrics=True,
+                ))
+        good, bad = results
+        self.assertEqual(good.text_bpb, bad.text_bpb)
+        self.assertAlmostEqual(good.text_bpb, math.log2(257), places=5)
+        self.assertGreater(bad.sequence_bpb, good.sequence_bpb)
+        self.assertGreater(bad.token_loss, good.token_loss)
+        self.assertEqual(good.eos_target_count, 1)
+        self.assertEqual(good.eos_accuracy, 1)
+        self.assertEqual(bad.eos_accuracy, 0)
+        for metrics in results:
+            self.assertAlmostEqual(
+                metrics.sequence_bpb - metrics.text_bpb,
+                metrics.eos_mean_nll / math.log(2), places=5,
+            )
+
+    def test_no_eos_validation_has_identical_text_and_sequence_bpb(self):
+        for tokenizer in (ByteTokenizer(with_eos=False), self.tokenizer):
+            # No EOS ID passed is also the API path for legacy BPE metadata.
+            config = self.small_config(vocab_size=tokenizer.vocab_size)
+            data = torch.tensor(tokenizer.encode('Hello world! ' * 10))
+            metrics = train.validation_loss(
+                ConstantModel(tokenizer.vocab_size), data, config, 'cpu', 2,
+                tokenizer.byte_lengths, eos_token_id=None, return_metrics=True,
+            )
+            self.assertEqual(metrics.text_bpb, metrics.sequence_bpb)
+            self.assertEqual(metrics.eos_target_count, 0)
+            self.assertIsNone(metrics.eos_mean_nll)
+            self.assertIsNone(metrics.eos_accuracy)
+
+    def test_validation_reports_sequence_bpb_and_eos_quality(self):
+        tokenizer = ByteTokenizer()
+        config = self.small_config(vocab_size=257)
+        config.context = 2
+        config.batch_size = 1
+        data = torch.tensor(train.encode_documents(['ab', 'c'], tokenizer))
+        output = io.StringIO()
+        with patch('train.torch.randint', return_value=torch.tensor([0])), redirect_stdout(output):
+            metrics = train.evaluate(
+                ConstantModel(257), data, config, 'cpu', 1, tokenizer.byte_lengths,
+                eos_token_id=tokenizer.eos_token_id,
+            )
+        self.assertIn('Val text BPB:', output.getvalue())
+        self.assertIn('Val sequence BPB:', output.getvalue())
+        self.assertIn('EOS targets: 1;', output.getvalue())
+        self.assertIn('mean NLL:', output.getvalue())
+        self.assertIn('prediction accuracy:', output.getvalue())
+        self.assertGreater(metrics.sequence_bpb, metrics.text_bpb)
 
     def test_generation_stops_at_eos_before_payload_lookup(self):
         for tokenizer in (ByteTokenizer(), self.tokenizer):

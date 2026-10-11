@@ -137,6 +137,39 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("Results", logs[0].read_text())
             self.assertIn("Generation total", logs[-1].read_text())
 
+    def test_checkpoint_selection_uses_text_bpb_and_stores_diagnostics(self):
+        # The second periodic result improves text BPB while sequence BPB and
+        # all-target loss worsen. The final result must not select the best.
+        metrics = [
+            train.ValidationMetrics(1.0, 0.7, 0.8, 2, 0.1, 1.0),
+            train.ValidationMetrics(2.0, 0.6, 1.8, 2, 1.2, 0.0),
+            train.ValidationMetrics(0.5, 0.5, 0.5, 0, None, None),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            repository = ModelRepository(config.model_directory)
+            with (
+                patch.object(torch.cuda, 'is_available', return_value=False),
+                patch.object(train, 'load_source', return_value=['synthetic source ' * 10]),
+                patch.object(train, 'evaluate', side_effect=metrics) as evaluate,
+                redirect_stdout(io.StringIO()),
+            ):
+                train.train(config, repository, 0)
+                _, best = repository.load(repository.best_filename, 'cpu')
+                _, last = repository.load(repository.last_filename, 'cpu')
+            self.assertEqual(best['step'], 2)
+            self.assertEqual(best['validation_bpb'], 0.6)
+            self.assertEqual(best['validation_loss'], 2.0)
+            self.assertEqual(best['validation_metrics'], {
+                'token_loss': 2.0, 'text_bpb': 0.6, 'sequence_bpb': 1.8,
+                'eos_target_count': 2, 'eos_mean_nll': 1.2, 'eos_accuracy': 0.0,
+            })
+            self.assertEqual(last['validation_bpb'], 0.5)
+            self.assertEqual(last['validation_metrics']['sequence_bpb'], 0.5)
+            self.assertEqual(best['selection_metric'], 'bpb')
+            self.assertTrue(all(call.kwargs['eos_token_id'] == 256
+                                for call in evaluate.call_args_list))
+
     def test_training_time_excludes_gaps_between_intervals(self):
         timer = TrainingTimer("cpu")
         with patch("core.time.perf_counter", side_effect=[10, 15, 100, 102]):

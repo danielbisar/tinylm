@@ -348,7 +348,7 @@ class ModelRepository:
 
     def save(
         self, filename, model, optimizer, step, config, val_loss,
-        tokenizer=None, val_bpb=None, data_metadata=None,
+        tokenizer=None, val_bpb=None, data_metadata=None, validation_metrics=None,
     ):
         if tokenizer is None and config.tokenizer_type != "byte":
             raise ValueError("BPE checkpoints require the training tokenizer")
@@ -367,6 +367,7 @@ class ModelRepository:
             "run_config": asdict(config),
             "tokenizer": tokenizer.metadata,
             "validation_bpb": val_bpb,
+            "validation_metrics": validation_metrics or {},
             "selection_metric": "bpb" if val_bpb is not None else "token_loss",
             "data_metadata": data_metadata or {},
         }

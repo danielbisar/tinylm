@@ -1,6 +1,7 @@
 """Train TinyLM and save best/last checkpoints in model/."""
 
 import argparse
+from dataclasses import asdict, dataclass
 import math
 import time
 
@@ -100,11 +101,28 @@ def bits_per_byte(total_nll_nats, source_bytes):
     return total_nll_nats / (math.log(2) * source_bytes)
 
 
+@dataclass
+class ValidationMetrics:
+    token_loss: float
+    text_bpb: float
+    sequence_bpb: float
+    eos_target_count: int
+    eos_mean_nll: float | None
+    eos_accuracy: float | None
+
+
 @torch.no_grad()
-def validation_loss(model, data, config, device, batches, byte_lengths=None):
+def validation_loss(
+    model, data, config, device, batches, byte_lengths=None, *,
+    eos_token_id=None, return_metrics=False,
+):
     was_training = model.training
     model.eval()
     total_nll = 0.0
+    text_nll = 0.0
+    eos_nll = 0.0
+    eos_count = 0
+    eos_correct = 0
     total_tokens = 0
     total_bytes = 0
     # The reversible ByteLevel vocabulary gives an exact byte length for
@@ -122,29 +140,64 @@ def validation_loss(model, data, config, device, batches, byte_lengths=None):
         for _ in range(batches):
             x, y = get_batch(data, config.batch_size, config.context, device)
             logits, _ = model(x)
-            total_nll += language_model_loss(logits, y).item() * y.numel()
+            token_nll = F.cross_entropy(
+                logits.reshape(-1, logits.size(-1)), y.reshape(-1),
+                reduction="none",
+            ).reshape_as(y)
+            text_targets = torch.ones_like(y, dtype=torch.bool)
+            if eos_token_id is not None:
+                eos_targets = y == eos_token_id
+                text_targets = ~eos_targets
+                eos_count += int(eos_targets.sum().item())
+                eos_nll += token_nll[eos_targets].sum().item()
+                eos_correct += int(
+                    ((logits.argmax(dim=-1) == y) & eos_targets).sum().item()
+                )
+            total_nll += token_nll.sum().item()
+            # EOS remains in token loss and sequence BPB, while text BPB
+            # measures only predictions representing source bytes.
+            text_nll += token_nll[text_targets].sum().item()
             total_tokens += y.numel()
-            total_bytes += lengths[y].sum().item()
+            total_bytes += lengths[y[text_targets]].sum().item()
     finally:
         model.train(was_training)
-    return total_nll / total_tokens, bits_per_byte(total_nll, total_bytes)
+    metrics = ValidationMetrics(
+        token_loss=total_nll / total_tokens,
+        text_bpb=bits_per_byte(text_nll, total_bytes),
+        sequence_bpb=bits_per_byte(total_nll, total_bytes),
+        eos_target_count=eos_count,
+        eos_mean_nll=eos_nll / eos_count if eos_count else None,
+        eos_accuracy=eos_correct / eos_count if eos_count else None,
+    )
+    return metrics if return_metrics else (metrics.token_loss, metrics.text_bpb)
 
 
-def evaluate(model, data, config, device, batches, byte_lengths=None):
+def evaluate(
+    model, data, config, device, batches, byte_lengths=None, *, eos_token_id=None,
+):
     synchronize(device)
     started = time.perf_counter()
-    loss, bpb = validation_loss(
+    metrics = validation_loss(
         model, data, config, device, batches, byte_lengths,
+        eos_token_id=eos_token_id, return_metrics=True,
     )
     synchronize(device)
     elapsed = time.perf_counter() - started
     evaluated_tokens = batches * config.batch_size * config.context
     print(
-        f"  Val token loss: {loss:.4f}; Val BPB: {bpb:.4f}; "
+        f"  Val token loss: {metrics.token_loss:.4f}; "
+        f"Val text BPB: {metrics.text_bpb:.4f}; "
+        f"Val sequence BPB: {metrics.sequence_bpb:.4f}; "
         f"{batches} batches; {elapsed:.2f}s; "
         f"{evaluated_tokens / elapsed:,.0f} tokens/sec"
     )
-    return loss, bpb
+    if metrics.eos_target_count:
+        print(
+            f"  EOS targets: {metrics.eos_target_count:,}; "
+            f"mean NLL: {metrics.eos_mean_nll:.4f}; "
+            f"prediction accuracy: {metrics.eos_accuracy:.2%}"
+        )
+    return metrics
 
 
 def print_expert_usage(expert_counts):
@@ -236,7 +289,7 @@ def train(config, repository, total_started):
     model = build_model(config.model_config(), device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
     print_model_info(model, config.model_config(), device, average_bytes_per_token)
-    print("  Best checkpoint selection: validation BPB")
+    print("  Best checkpoint selection: validation text BPB")
     print()
 
     reset_peak_memory(device)
@@ -265,24 +318,25 @@ def train(config, repository, total_started):
             f"  Training: LM loss {lm_loss.item():.4f}; "
             f"router aux {aux_loss.item():.4f}"
         )
-        val_loss, val_bpb = evaluate(
+        metrics = evaluate(
             model, validation_data, config, device, config.validation_batches,
-            tokenizer.byte_lengths,
+            tokenizer.byte_lengths, eos_token_id=tokenizer.eos_token_id,
         )
         print_expert_usage(expert_counts)
-        if val_bpb < best_val_bpb:
-            best_val_bpb = val_bpb
-            best_token_loss = val_loss
+        if metrics.text_bpb < best_val_bpb:
+            best_val_bpb = metrics.text_bpb
+            best_token_loss = metrics.token_loss
             repository.save(
                 repository.best_filename,
                 model,
                 optimizer,
                 completed,
                 config,
-                val_loss,
+                metrics.token_loss,
                 tokenizer,
-                val_bpb,
+                metrics.text_bpb,
                 data_metadata,
+                validation_metrics=asdict(metrics),
             )
         print_progress(
             completed, config, timer, total_started, training_started,
@@ -290,9 +344,9 @@ def train(config, repository, total_started):
         )
 
     print("\nFinal validation (last model)")
-    final_val_loss, final_val_bpb = evaluate(
+    final_metrics = evaluate(
         model, validation_data, config, device, config.final_validation_batches,
-        tokenizer.byte_lengths,
+        tokenizer.byte_lengths, eos_token_id=tokenizer.eos_token_id,
     )
     # Keep best-checkpoint selection on the same periodic validation budget.
     # The larger final pass measures the last model, without changing that best.
@@ -302,10 +356,11 @@ def train(config, repository, total_started):
         optimizer,
         config.steps,
         config,
-        final_val_loss,
+        final_metrics.token_loss,
         tokenizer,
-        final_val_bpb,
+        final_metrics.text_bpb,
         data_metadata,
+        validation_metrics=asdict(final_metrics),
     )
     print_progress(
         config.steps, config, timer, total_started, training_started,
@@ -318,7 +373,7 @@ def train(config, repository, total_started):
     print(f"  Training time (steps only): {timer.elapsed:.2f}s")
     print(f"  Total runtime: {time.perf_counter() - total_started:.2f}s")
     print(f"  Peak VRAM: {peak_memory_mib(device):.1f} MiB")
-    print(f"  Best periodic validation BPB: {best_val_bpb:.4f}")
+    print(f"  Best periodic validation text BPB: {best_val_bpb:.4f}")
     print(f"  Corresponding validation token loss: {best_token_loss:.4f}")
 
 
