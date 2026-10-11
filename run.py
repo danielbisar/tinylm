@@ -22,8 +22,8 @@ from core import (
 
 @torch.no_grad()
 def generate(
-    model, tokenizer, prompt, max_output_bytes, *, greedy=True,
-    temperature=0.8, top_p=0.9, generator=None,
+    model, tokenizer, prompt, max_output_bytes, *, greedy=False,
+    temperature=0.7, top_p=0.9, generator=None,
 ):
     if not math.isfinite(temperature) or temperature <= 0:
         raise ValueError("temperature must be finite and greater than zero")
