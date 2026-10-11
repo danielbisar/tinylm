@@ -49,6 +49,7 @@ Byte-row loss is held-out next-byte cross-entropy (lower is better): final valid
 | [2026-10-11 10:11:29](docs/runs/2026-10-11_10-11-29_bpe_8192.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 2,441 | 5% | ~81,905,513 | 64,713,344 | 705.49s | 116,097 | 4562.4 | 0.6519 BPB | BPE 8,192; 16 experts/block; top-2; ~81.92M source-byte budget; training-step timing |
 | [2026-10-11 10:33:38](docs/runs/2026-10-11_10-33-38_bpe_4096.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 2,541 | 5% | ~81,912,022 | 61,563,520 | 696.16s | 117,663 | 4027.0 | 0.6558 BPB | BPE 4,096; 16 experts/block; top-2; ~81.92M source-byte budget; training-step timing |
 | [2026-10-11 10:47:52](docs/runs/2026-10-11_10-47-52_bpe_16384.md) | 384 | 6 | 64 | 256 | 3 × 2 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 2,422 | 5% | ~81,918,924 | 71,012,992 | 765.10s | 107,070 | 5658.3 | 0.6494 BPB | BPE 16,384; 16 experts/block; top-2; ~81.92M source-byte budget; training-step timing |
+| [2026-10-11 16:43:28](docs/runs/2026-10-11_16-43-28_bpe_8192_r3.md) | 384 | 6 | 64 | 256 | 3 × 3 | RMSNorm | Sparse MoE SwiGLU | RoPE | 32 | 2,441 | 5% | ~81,905,513 | 64,713,344 | 1028.57s | 79,630 | 5957.1 | 0.6419 BPB | BPE 8,192; three recurrent passes; 16 experts/block; top-2; ~81.92M source-byte budget; sampling and greedy generations |
 
 For byte rows, sampled training bytes are `steps × batch size × context`, including repeated samples, rather than unique corpus size. For BPE rows, this product counts tokens; estimated source bytes additionally multiply by the training corpus average bytes/token. BPE throughput and training time cover training steps only, whereas historical byte timings include periodic validation and checkpoint writes. Bytes/sec is copied from the terminal report when available; `~` marks throughput inferred from sampled bytes and the reported elapsed time. The stale-output revision has no reliable sampled-byte or throughput result.
 
@@ -86,22 +87,22 @@ python train.py --model-prefix=some-prefix- --force-overwrite
 python run.py --model-prefix=some-prefix- --checkpoint=last
 ```
 
-Greedy decoding remains the benchmark default. Enable temperature and nucleus
-sampling with:
+Generation defaults to temperature 0.7 and nucleus sampling with top-p 0.9.
+Set the sampling parameters explicitly with:
 
 ```bash
-python run.py --model-prefix=some-prefix- --temperature=0.8 --top-p=0.9 --seed=42
+python run.py --model-prefix=some-prefix- --temperature=0.7 --top-p=0.9 --seed=42
 ```
 
-Either `--temperature` or `--top-p` enables sampling; the omitted sampling
-setting defaults to 0.8 or 0.9 respectively. Temperature must be positive and
-finite; top-p must be in `(0, 1]` (`1` keeps the full vocabulary).
+Omitted `--temperature` and `--top-p` settings default to 0.7 and 0.9 respectively.
+Temperature must be positive and finite; top-p must be in `(0, 1]` (`1` keeps the full vocabulary).
 `--greedy` explicitly selects greedy decoding and overrides sampling flags.
-`--seed` defaults to `Config.seed` and does not enable sampling by itself.
+`--seed` defaults to `Config.seed`. Use `--greedy` to reproduce the historical
+greedy benchmarks.
 Sampling is reproducible with the same seed, prompts, checkpoint, and device.
 The decoding settings and seed are recorded in generation output and logs.
 
-By default, generation uses greedy decoding until approximately `max_output_bytes=1000` newly decoded UTF-8 bytes for each of the five configured prompts, possibly exceeding the budget by the final token. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports token loss and BPB; progress reports tokens processed, tokens/sec, estimated source-byte throughput based on the training corpus average, and remaining training-loop time. Generation reports generated tokens and decoded UTF-8 bytes, both rates excluding the prompt. Invalid generated UTF-8 is replaced, and replacement characters count toward the displayed byte budget; this differs from historical raw-byte generation counts.
+By default, generation uses sampling until approximately `max_output_bytes=1000` newly decoded UTF-8 bytes for each of the five configured prompts, possibly exceeding the budget by the final token. Checkpoint save/load durations are logged. Training reports time spent in training steps separately from total runtime; validation, logging, and checkpoint writes are excluded from training time. Each evaluation reports token loss and BPB; progress reports tokens processed, tokens/sec, estimated source-byte throughput based on the training corpus average, and remaining training-loop time. Generation reports generated tokens and decoded UTF-8 bytes, both rates excluding the prompt. Invalid generated UTF-8 is replaced, and replacement characters count toward the displayed byte budget; this differs from historical raw-byte generation counts.
 
 Both commands immediately mirror console output into `docs/runs/<date-time>-<model-prefix>.md` (using `default` for an empty prefix). The timestamp includes microseconds to distinguish separate invocations. Logs include the timezone, command, configuration, measurements, and generated text; errors and interrupted runs retain the output already written.
 
@@ -146,9 +147,10 @@ size, each combining training and generation output. The earlier 10,000-step
 | [4,096](docs/runs/2026-10-11_10-33-38_bpe_4096.md) | 2,541 | 81,912,022 | 0.6558 (2,541) | 0.6641 | 696.16 | 4,027.0 | 111.07 |
 | [8,192](docs/runs/2026-10-11_10-11-29_bpe_8192.md) | 2,441 | 81,905,513 | 0.6519 (2,440) | 0.6523 | 705.49 | 4,562.4 | 122.54 |
 | [16,384](docs/runs/2026-10-11_10-47-52_bpe_16384.md) | 2,422 | 81,918,924 | 0.6494 (2,422) | 0.6508 | 765.10 | 5,658.3 | 121.85 |
+| [8,192 (three passes)](docs/runs/2026-10-11_16-43-28_bpe_8192_r3.md) | 2,441 | 81,905,513 | 0.6419 (2,440) | 0.6409 | 1,028.57 | 5,957.1 | 87.26 greedy / 83.88 sampling |
 
-The 2,048, 4,096, 8,192, and 16,384 runs use the same approximate 81.92M
-source-byte budget. The 4,096 vocabulary trained fastest (696.16s); the 16,384
+The two-pass 2,048, 4,096, 8,192, and 16,384 runs use the same approximate
+81.92M source-byte budget. The 4,096 vocabulary trained fastest (696.16s); the 16,384
 vocabulary achieved the lowest best/final BPB (0.6494 / 0.6508), with the highest
 peak memory (5,658.3 MiB). Its improvement over 8,192 (0.6519 / 0.6523) is small
 and comes with longer training time; these single-seed runs do not establish
@@ -158,7 +160,14 @@ retries. The earlier 10,000-step 4,096 run used about 3.94 times the source-byte
 budget, so its lower BPB does not isolate vocabulary size. The byte baseline's
 0.5583 best token loss is approximately 0.8055 BPB. BPE also sees more source
 bytes per 256-token context, and validation samples differ across tokenizations.
-All recorded BPE runs still show repetition in their five greedy generation samples.
+The latest [BPE 8,192 run with three recurrent passes](docs/runs/2026-10-11_16-43-28_bpe_8192_r3.md)
+improved best/final BPB to 0.6419 / 0.6409 at the same source-byte budget and
+parameter count. Relative to the two-pass 8,192 baseline, training took 45.8%
+longer and peak memory increased 30.6%; greedy generation fell to 87.26 bytes/s.
+Sampling at temperature 0.7 and top-p 0.9 achieved 83.88 bytes/s and produced
+more varied continuations, while repetition and story restarts persisted in both
+decoding modes. All recorded BPE runs still show repetition in their five greedy
+generation samples.
 
 Every checkpoint embeds the complete tokenizer JSON, training settings, library
 version, vocabulary size, architecture, run settings, validation metrics, selection
