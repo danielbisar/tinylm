@@ -366,7 +366,7 @@ class TokenizerTests(unittest.TestCase):
         self.assertEqual(restored.encode(text), tokenizer.encode(text))
         self.assertEqual(restored.byte_lengths, tokenizer.byte_lengths)
         self.assertEqual(restored.eos_token_id, tokenizer.eos_token_id)
-        self.assertEqual(checkpoint['selection_metric'], 'bpb')
+        self.assertEqual(checkpoint['selection_metric'], 'text_bpb')
         ids = torch.tensor([tokenizer.encode('Hello')])
         torch.testing.assert_close(restored_model(ids)[0], model(ids)[0])
 

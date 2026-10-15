@@ -166,7 +166,9 @@ class WorkflowTests(unittest.TestCase):
             })
             self.assertEqual(last['validation_bpb'], 0.5)
             self.assertEqual(last['validation_metrics']['sequence_bpb'], 0.5)
-            self.assertEqual(best['selection_metric'], 'bpb')
+            self.assertEqual(best['selection_metric'], 'text_bpb')
+            self.assertEqual(best['provenance']['config']['vocab_size'], 257)
+            self.assertEqual(best['provenance']['sampling']['validation_seed'], 43)
             self.assertTrue(all(call.kwargs['eos_token_id'] == 256
                                 for call in evaluate.call_args_list))
 

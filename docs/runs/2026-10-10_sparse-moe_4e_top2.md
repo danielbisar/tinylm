@@ -1,6 +1,10 @@
 # Run: Sparse MoE, four SwiGLU experts with top-2 routing
 
-[Run overview](../../README.md)
+> **Historical/pre-EOS experiment.** Tokenization, metrics, sampling, and
+> timing follow this report's recorded implementation, not current code.
+> Conversational recommendations are historical advice, not verified conclusions.
+
+[Run overview](HISTORY.md#run-overview)
 
 - Report recorded: 2026-10-10; actual run start time and timezone were not supplied. The filename uses the report date without an invented start time.
 - Code revision: The supplied configuration matches `e48ba71daa131a1872e3a85028fd311aa92cc68b` plus the current uncommitted changes in `main.py`, `num_experts = 8` → `num_experts = 4` and `top_k = 1` → `top_k = 2`. The exact revision used for the run was not supplied; configuration details below are reconstructed from the current source where absent from the transcript.

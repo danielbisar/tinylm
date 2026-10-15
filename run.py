@@ -15,6 +15,8 @@ from core import (
     add_model_prefix_argument,
     log_run,
     print_model_info,
+    print_metadata,
+    run_metadata,
     seed_random,
     synchronize,
 )
@@ -98,10 +100,32 @@ def run(config, repository, filename, *, greedy=False, temperature=0.7, top_p=0.
     if "validation_loss" in checkpoint:
         print(f"  Validation token loss: {checkpoint['validation_loss']:.4f}")
     if checkpoint.get("validation_bpb") is not None:
-        print(f"  Validation BPB: {checkpoint['validation_bpb']:.4f}")
+        label = (
+            "Validation text BPB" if checkpoint.get("selection_metric") == "text_bpb"
+            else "Validation BPB (legacy semantics)"
+        )
+        print(f"  {label}: {checkpoint['validation_bpb']:.4f}")
+    diagnostics = checkpoint.get("validation_metrics", {})
+    if "sequence_bpb" in diagnostics:
+        print(f"  Validation sequence BPB: {diagnostics['sequence_bpb']:.4f}")
     print(f"  Selection metric: {checkpoint.get('selection_metric', 'token_loss (legacy)')}")
     tokenizer = tokenizer_from_metadata(checkpoint.get("tokenizer", LEGACY_BYTE_METADATA))
     print(f"  Tokenizer: {tokenizer.metadata['type']}")
+    metadata = run_metadata(config, device, tokenizer=tokenizer)
+    # Generation uses checkpoint architecture, not the editable training defaults.
+    for key in ("config", "dataset", "sampling", "metric_semantics"):
+        metadata.pop(key)
+    metadata["checkpoint"] = {
+        "filename": filename,
+        "model_config": checkpoint["config"],
+        "training_provenance": checkpoint.get("provenance", {}),
+    }
+    metadata["decoding"] = {
+        "greedy": greedy, "temperature": temperature, "top_p": top_p,
+        "seed": config.seed, "max_output_bytes": config.max_output_bytes,
+        "prompts": config.prompts,
+    }
+    print_metadata("Generation metadata", metadata)
     total_tokens = 0
     total_bytes = 0
     total_seconds = 0.0

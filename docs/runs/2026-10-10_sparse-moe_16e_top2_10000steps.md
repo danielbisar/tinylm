@@ -1,6 +1,10 @@
 # Run: Sparse MoE, sixteen SwiGLU experts with top-2 routing, 10,000 steps
 
-[Run overview](../../README.md)
+> **Historical/pre-EOS experiment.** Tokenization, metrics, sampling, and
+> timing follow this report's recorded implementation, not current code.
+> Conversational recommendations are historical advice, not verified conclusions.
+
+[Run overview](HISTORY.md#run-overview)
 
 - Report recorded: 2026-10-10; actual run start time and timezone were not supplied. The filename uses the report date without an invented start time.
 - Code revision: The supplied configuration and generation prompts match `d731393b9118f9b31a2f98afedc38dec97ab5e2c` plus the current uncommitted changes in `main.py`: `steps = 4000` → `steps = 10000`, remove the default generation length, and generate 1,000 new bytes for each of five prompts instead of 200 bytes for one prompt. The exact revision used for the run was not supplied; configuration details below are reconstructed from the current source where absent from the transcript.

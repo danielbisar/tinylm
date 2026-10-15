@@ -4,8 +4,11 @@ import argparse
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version
+import hashlib
+import json
 from pathlib import Path
-import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -47,6 +50,7 @@ class Config:
     seed: int = 42
     learning_rate: float = 3e-4
     dataset_name: str = "roneneldan/TinyStories"
+    dataset_revision: str | None = None
     train_split: str = "train[:5%]"
     validation_split: str = "validation[:1%]"
 
@@ -254,6 +258,101 @@ def seed_random(seed):
         torch.cuda.manual_seed_all(seed)
 
 
+def source_provenance():
+    root = Path(__file__).resolve().parent
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        commit, dirty = None, None
+        print("WARNING: Git provenance unavailable; revision/dirty state are unknown.")
+    else:
+        dirty = bool(status)
+    return {
+        "git_commit": commit,
+        "git_dirty": dirty,
+        "source_sha256": {
+            name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+            for name in ("core.py", "tinylm.py", "train.py", "run.py")
+        },
+    }
+
+
+def run_metadata(config, device, *, tokenizer=None, dataset_metadata=None):
+    libraries = {}
+    for name in ("torch", "numpy", "datasets", "tokenizers", "huggingface-hub"):
+        try:
+            libraries[name] = version(name)
+        except PackageNotFoundError:
+            libraries[name] = None
+    device = torch.device(device)
+    hardware = {"type": device.type, "torch_threads": torch.get_num_threads()}
+    if device.type == "cuda":
+        properties = torch.cuda.get_device_properties(device)
+        hardware.update(
+            name=properties.name,
+            total_memory_mib=properties.total_memory / 1024**2,
+        )
+    configuration = asdict(config)
+    for name in ("model_directory", "log_directory"):
+        configuration[name] = public_paths(configuration[name])
+    tokenizer_config = None
+    if tokenizer is not None:
+        tokenizer_config = {
+            key: value for key, value in tokenizer.metadata.items()
+            if key != "serialization"
+        }
+    return {
+        "config": configuration,
+        "python": sys.version.split()[0],
+        "libraries": libraries,
+        "device": hardware,
+        "cuda_runtime": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version() if device.type == "cuda" else None,
+        "float32_matmul_precision": torch.get_float32_matmul_precision(),
+        "default_dtype": str(torch.get_default_dtype()),
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "cuda_matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+        "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+        "dataset": {
+            "identifier": config.dataset_name,
+            "requested_revision": config.dataset_revision,
+            "splits": dataset_metadata or {},
+        },
+        "tokenizer": tokenizer_config,
+        "sampling": {
+            "training_seed": config.seed,
+            "validation_seed": config.seed + 1,
+            "validation_windows": "fixed per evaluation; final uses the same prefix",
+        },
+        "metric_semantics": "eos-aware text_bpb; sequence_bpb includes EOS NLL",
+    }
+
+
+def print_metadata(label, metadata):
+    print(f"{label}:\n{json.dumps(metadata, indent=2, sort_keys=True)}")
+
+
+def public_paths(text):
+    root = Path(__file__).resolve().parent
+    for path, replacement in (
+        (root, "<repo>"),
+        (Path.home(), "<home>"),
+        (Path(tempfile.gettempdir()), "<tmp>"),
+    ):
+        text = text.replace(str(path) + "/", replacement + "/")
+        if text == str(path):
+            text = replacement
+    return text
+
+
 def synchronize(device):
     # CUDA work is asynchronous; finish it before reading a wall-clock timer.
     if torch.device(device).type == "cuda":
@@ -349,6 +448,7 @@ class ModelRepository:
     def save(
         self, filename, model, optimizer, step, config, val_loss,
         tokenizer=None, val_bpb=None, data_metadata=None, validation_metrics=None,
+        provenance=None,
     ):
         if tokenizer is None and config.tokenizer_type != "byte":
             raise ValueError("BPE checkpoints require the training tokenizer")
@@ -368,8 +468,9 @@ class ModelRepository:
             "tokenizer": tokenizer.metadata,
             "validation_bpb": val_bpb,
             "validation_metrics": validation_metrics or {},
-            "selection_metric": "bpb" if val_bpb is not None else "token_loss",
+            "selection_metric": "text_bpb" if val_bpb is not None else "token_loss",
             "data_metadata": data_metadata or {},
+            "provenance": provenance or {},
         }
         path = self.directory / filename
         # Replace only after a complete write, preserving the previous best
@@ -420,7 +521,7 @@ class Tee:
 
     def write(self, text):
         self.console.write(text)
-        self.log_file.write(text)
+        self.log_file.write(public_paths(text))
         self.flush()  # Preserve output immediately, even during long runs.
         return len(text)
 
@@ -430,7 +531,8 @@ class Tee:
 
 
 @contextmanager
-def log_run(directory, prefix, mode):
+def log_run(directory, prefix, mode, *, provenance=None):
+    provenance = source_provenance() if provenance is None else provenance
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     now = datetime.now().astimezone()
@@ -442,14 +544,19 @@ def log_run(directory, prefix, mode):
         log_file.write(f"Started: {now.isoformat()}\n\n```text\n")
         with redirect_stdout(Tee(sys.stdout, log_file)):
             with redirect_stderr(Tee(sys.stderr, log_file)):
-                print(f"Command: {shlex.join(sys.argv)}")
+                # Only the entry point is recorded: arbitrary argv can contain
+                # credentials. Effective settings are captured separately.
+                print(f"Entry point: {Path(sys.argv[0]).name}")
+                print_metadata("Source provenance", provenance)
                 print(f"Log: {path}\n")
                 try:
                     yield path
-                except BaseException:
+                except BaseException as error:
                     # The usual traceback reaches the console after streams
                     # are restored; retain it in the run file as well.
-                    traceback.print_exc(file=log_file)
+                    log_file.write(public_paths(
+                        "".join(traceback.format_exception(error)),
+                    ))
                     raise
                 finally:
                     log_file.write("\n```\n")

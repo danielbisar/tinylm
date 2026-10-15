@@ -18,17 +18,29 @@ from core import (
     log_run,
     peak_memory_mib,
     print_model_info,
+    print_metadata,
     reset_peak_memory,
+    run_metadata,
     seed_random,
+    source_provenance,
     synchronize,
 )
 
 
-def load_source(config, split):
+def load_source(config, split, metadata=None):
     from datasets import load_dataset
 
     print(f"Loading {config.dataset_name} ({split})...")
-    dataset = load_dataset(config.dataset_name, split=split)
+    revision = {} if config.dataset_revision is None else {
+        "revision": config.dataset_revision,
+    }
+    dataset = load_dataset(config.dataset_name, split=split, **revision)
+    if metadata is not None:
+        dataset_version = getattr(getattr(dataset, "info", None), "version", None)
+        metadata[split] = {
+            "version": str(dataset_version) if dataset_version is not None else None,
+            "fingerprint": getattr(dataset, "_fingerprint", None),
+        }
     return list(dataset["text"])
 
 
@@ -65,8 +77,12 @@ def source_statistics(data, tokenizer):
     }
 
 
-def get_batch(data, batch_size, context, device):
-    starts = torch.randint(0, len(data) - context - 1, (batch_size,))
+def get_batch(data, batch_size, context, device, *, generator=None):
+    if batch_size < 1 or context < 1 or len(data) <= context:
+        raise ValueError("Require positive batch/context and at least context + 1 tokens")
+    starts = torch.randint(
+        0, len(data) - context, (batch_size,), generator=generator,
+    )
     x = torch.stack([data[int(s):int(s) + context] for s in starts])
     # The target is shifted by one: each position learns to predict the next
     # token using only the tokens before it (causal attention prevents peeking).
@@ -81,8 +97,10 @@ def language_model_loss(logits, targets):
     )
 
 
-def train_step(model, optimizer, data, config, device):
-    x, y = get_batch(data, config.batch_size, config.context, device)
+def train_step(model, optimizer, data, config, device, *, generator=None):
+    x, y = get_batch(
+        data, config.batch_size, config.context, device, generator=generator,
+    )
     logits, router_aux_loss = model(x)
     lm_loss = language_model_loss(logits, y)
     # The auxiliary term encourages balanced expert use; validation reports
@@ -116,6 +134,9 @@ def validation_loss(
     model, data, config, device, batches, byte_lengths=None, *,
     eos_token_id=None, return_metrics=False,
 ):
+    if batches < 1:
+        raise ValueError("Validation requires at least one batch")
+    generator = torch.Generator().manual_seed(config.seed + 1)
     was_training = model.training
     model.eval()
     total_nll = 0.0
@@ -138,7 +159,9 @@ def validation_loss(
     lengths = torch.tensor(byte_lengths, dtype=torch.long, device=device)
     try:
         for _ in range(batches):
-            x, y = get_batch(data, config.batch_size, config.context, device)
+            x, y = get_batch(
+                data, config.batch_size, config.context, device, generator=generator,
+            )
             logits, _ = model(x)
             token_nll = F.cross_entropy(
                 logits.reshape(-1, logits.size(-1)), y.reshape(-1),
@@ -237,15 +260,23 @@ def print_progress(
 
 
 def configure_training_budget(config, average_bytes_per_token):
+    if config.batch_size < 1 or config.context < 1:
+        raise ValueError("Batch size and context must be positive")
     if config.target_training_bytes is not None:
-        if average_bytes_per_token <= 0:
+        if not math.isfinite(average_bytes_per_token) or average_bytes_per_token <= 0:
             raise ValueError("Training source must contain source bytes")
+        if not math.isfinite(config.target_training_bytes) or config.target_training_bytes <= 0:
+            raise ValueError("Source-byte budget must be finite and positive")
         tokens_per_step = config.batch_size * config.context
         config.steps = round(
             config.target_training_bytes
             / (tokens_per_step * average_bytes_per_token)
         )
         config.validate_every = max(1, config.steps // 10)
+    if config.steps < 1:
+        raise ValueError("Training budget must produce at least one training step")
+    if min(config.validate_every, config.validation_batches, config.final_validation_batches) < 1:
+        raise ValueError("Validation interval and batch counts must be positive")
 
 
 def print_training_config(config, average_bytes_per_token):
@@ -267,10 +298,14 @@ def print_training_config(config, average_bytes_per_token):
     print(f"  Splits: {config.train_split}; {config.validation_split}\n")
 
 
-def train(config, repository, total_started):
+def train(config, repository, total_started, *, provenance=None, source_loader=None):
+    provenance = source_provenance() if provenance is None else provenance
+    source_loader = load_source if source_loader is None else source_loader
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed_random(config.seed)
-    training_documents = load_source(config, config.train_split)
+    training_generator = torch.Generator().manual_seed(config.seed)
+    dataset_metadata = {}
+    training_documents = source_loader(config, config.train_split, dataset_metadata)
     tokenizer = create_tokenizer(config, training_documents)
     config.vocab_size = tokenizer.vocab_size
     print(f"Tokenizer: {config.tokenizer_type}; actual vocabulary: {tokenizer.vocab_size:,}")
@@ -278,13 +313,21 @@ def train(config, repository, total_started):
     train_data = load_data(config, config.train_split, tokenizer, training_documents)
     del training_documents
     print("Validation source:")
-    validation_data = load_data(config, config.validation_split, tokenizer)
+    validation_documents = source_loader(config, config.validation_split, dataset_metadata)
+    validation_data = load_data(
+        config, config.validation_split, tokenizer, validation_documents,
+    )
+    del validation_documents
     data_metadata = {
         "training": source_statistics(train_data, tokenizer),
         "validation": source_statistics(validation_data, tokenizer),
     }
     average_bytes_per_token = data_metadata["training"]["average_bytes_per_token"]
     configure_training_budget(config, average_bytes_per_token)
+    provenance = dict(provenance, **run_metadata(
+        config, device, tokenizer=tokenizer, dataset_metadata=dataset_metadata,
+    ))
+    print_metadata("Effective run metadata", provenance)
     print_training_config(config, average_bytes_per_token)
     model = build_model(config.model_config(), device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
@@ -308,6 +351,7 @@ def train(config, repository, total_started):
             for _ in range(completed + 1, next_validation + 1):
                 lm_loss, aux_loss = train_step(
                     model, optimizer, train_data, config, device,
+                    generator=training_generator,
                 )
         completed = next_validation
 
@@ -337,6 +381,7 @@ def train(config, repository, total_started):
                 metrics.text_bpb,
                 data_metadata,
                 validation_metrics=asdict(metrics),
+                provenance=provenance,
             )
         print_progress(
             completed, config, timer, total_started, training_started,
@@ -361,6 +406,7 @@ def train(config, repository, total_started):
         final_metrics.text_bpb,
         data_metadata,
         validation_metrics=asdict(final_metrics),
+        provenance=provenance,
     )
     print_progress(
         config.steps, config, timer, total_started, training_started,
@@ -388,21 +434,27 @@ def main(argv=None):
     )
     parser.add_argument("--tokenizer-type", choices=("byte", "bpe"))
     parser.add_argument("--bpe-vocab-size", type=int)
+    parser.add_argument("--dataset-revision", help="Immutable upstream dataset revision")
     args = parser.parse_args(argv)
     config = Config()
     if args.tokenizer_type is not None:
         config.tokenizer_type = args.tokenizer_type
     if args.bpe_vocab_size is not None:
         config.bpe_vocab_size = args.bpe_vocab_size
+    if args.dataset_revision is not None:
+        config.dataset_revision = args.dataset_revision
     repository = ModelRepository(config.model_directory, args.model_prefix)
-    with log_run(config.log_directory, args.model_prefix, "training"):
+    provenance = source_provenance()
+    with log_run(
+        config.log_directory, args.model_prefix, "training", provenance=provenance,
+    ):
         try:
             # Check BOTH destinations before loading data or creating a model.
             repository.check_overwrite(args.force_overwrite)
         except FileExistsError as error:
             print(error)
             return 1
-        train(config, repository, total_started)
+        train(config, repository, total_started, provenance=provenance)
     return 0
 
 
