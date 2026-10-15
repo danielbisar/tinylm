@@ -1,5 +1,33 @@
 # TinyLM
 
+TinyLM is a small language-model implementation in PyTorch for exploring model architecture, tokenization, training efficiency, and local-GPU constraints. The project grew from a minimal byte-level transformer into a documented experimental platform covering recurrent/shared transformer blocks, RMSNorm, RoPE, SwiGLU, sparse Mixture-of-Experts routing, byte-level BPE, checkpointing, validation metrics, reproducible generation, and detailed run reporting.
+
+The project is intentionally educational and experimental. It is designed to make architectural trade-offs inspectable and measurable on consumer hardware rather than to serve as a production LLM framework.
+
+## What this project explores
+
+- How model width, context length, attention-head configuration, and recurrent/shared transformer blocks affect quality, runtime, and memory use.
+- Dense versus sparse Mixture-of-Experts feed-forward layers, including top-k routing and load-balancing loss.
+- Byte tokenization versus locally trained byte-level BPE at approximately matched source-byte training budgets.
+- Validation using token loss and bits per byte (BPB), with reproducible best/last checkpoints.
+- Sampling versus greedy generation, including temperature, top-p, and deterministic seeds.
+- Practical training throughput and VRAM behavior on a consumer NVIDIA RTX 3060 with 12 GB VRAM.
+- Reproducible experiment reports that preserve configuration, measurements, environment details, and generated samples.
+
+## Project status
+
+This is an experimental learning project. The implementation deliberately favors readability and inspectability over production-scale optimization. Recorded results are individual experiments and should not be interpreted as statistically significant model comparisons unless explicitly stated.
+
+## Dataset
+
+The later experiments use the Hugging Face [`roneneldan/TinyStories`](https://huggingface.co/datasets/roneneldan/TinyStories) dataset. The dataset is downloaded at runtime and is **not** redistributed by this repository. Refer to the upstream dataset page for its provenance and applicable terms.
+
+## License
+
+The source code in this repository is released under the [MIT License](LICENSE). Third-party datasets and dependencies remain subject to their own licenses and terms.
+
+## Technical overview
+
 A small byte-level language model built with PyTorch, exploring how model width, context length, attention heads, and shared transformer blocks affect quality, training time, and GPU memory use. Early experiments use a few repeated sentences; later runs train on TinyStories. The recorded experiments discuss an RTX 3060 with 12 GB VRAM.
 
 The baseline model embeds 256 byte values (optional locally trained BPE uses its actual vocabulary size), applies three unique transformer blocks twice (shared weights between passes), and predicts the next byte. Blocks use RMSNorm, causal attention with RoPE, and sparse MoE feed-forward layers with sixteen SwiGLU experts and top-2 routing. The current configuration is width 384, 6 heads, context 256, batch size 32, and an 81,920,000 source-byte training budget (10,000 steps in byte mode). The historical dense width-512 model achieved best validation loss **0.6109** at step 9,500; the comparable dense width-384 baseline achieved **0.6338**. The eight-expert 10,000-step sparse MoE run achieved best LM validation loss **0.5721** at step 9,000; see its [top-2 run report](docs/runs/2026-10-10_13-13-05_sparse-moe_8e_top2.md). The [eight-expert top-1 run](docs/runs/2026-10-10_sparse-moe_8e_top1.md) achieved best LM validation loss **0.6515** at step 9,000, using **2,296.0 MiB** peak VRAM and **1,708.18 seconds** of training time. The [four-expert top-2 run](docs/runs/2026-10-10_sparse-moe_4e_top2.md) achieved **0.5863** at step 10,000 with **16,129,408 parameters**, **3,048.7 MiB** peak VRAM, and **2,149.92 seconds** of training time. The [six-expert top-2 run](docs/runs/2026-10-10_sparse-moe_6e_top2.md) achieved **0.5778** at step 10,000 with **23,209,600 parameters**, **3,177.9 MiB** peak VRAM, and **2,324.46 seconds** of training time. The earlier [sixteen-expert top-2 run](docs/runs/2026-10-10_sparse-moe_16e_top2.md) used a shorter 4,000-step budget and achieved **0.6412** at step 4,000 with **58,610,560 parameters**, **3,764.0 MiB** peak VRAM, and **1,100.73 seconds** of training time. At the same step, the six- and eight-expert top-2 runs had validation losses of **0.6734** and **0.6590**. The latest [10,000-step sixteen-expert top-2 run](docs/runs/2026-10-10_sparse-moe_16e_top2_10000steps.md) achieved best/final LM validation loss **0.5583** at step 10,000 with **58,610,560 parameters**, **3,762.7 MiB** peak VRAM, and **2,726.54 seconds** of training time. Its five longer greedy generation samples show substantial repetition.
@@ -26,7 +54,7 @@ Byte-row loss is held-out next-byte cross-entropy (lower is better): final valid
 | [2026-10-09 23:49](docs/runs/2026-10-09_23-49_a52a788.md) | 256 | 4 | 64 | 128 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 1,744,128 | 198.15s | ~12,920 | 57.7 | 1.1105 | Width 256 |
 | [2026-10-09 23:54](docs/runs/2026-10-09_23-54_6f57db8.md) | 384 | 4 | 96 | 128 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 3,795,712 | 204.99s | ~12,488 | 99.0 | 1.0384 | Width 384 |
 | [2026-10-10 00:01](docs/runs/2026-10-10_00-01_3745c38.md) | 512 | 4 | 128 | 128 | 2 × 3 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 6,633,728 | 216.24s | ~11,839 | 150.3 | 1.0321 | Width 512 |
-| [2026-10-10 00:09](docs/runs/2026-10-10_00-09_6770ac9.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 5,570,176 | 218.61s | ~11,710 | 126.1 | 1.0097 | Three shared blocks ×2 |
+| [2026-10-10 00:09](docs/runs/2026-10-10_00-09_6770ac9.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 5% | 2,560,000 | 5,570,176 | 218.61s | ~11,710 | 126.1 | 1.0097 | Three shared blocks ×2 |
 | [2026-10-10 00:15](docs/runs/2026-10-10_00-15_4f7e6f7.md) | 384 | 4 | 96 | 128 | 4 × 1 | LayerNorm | GELU MLP | Learned position table | 1 | 20,000 | 1% | 2,560,000 | 7,344,640 | 173.28s | ~14,774 | 158.0 | 1.0239 | Four unique blocks; one pass |
 | [2026-10-10 00:21](docs/runs/2026-10-10_00-21_6f80b7e.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 32 | 625 | 1% | 2,560,000 | 5,570,176 | 41.06s | 62,348 | 745.4 | 1.3875 | Random batch sampling; seed 42 |
 | [2026-10-10 00:31](docs/runs/2026-10-10_00-31_a03938b.md) | 384 | 4 | 96 | 128 | 3 × 2 | LayerNorm | GELU MLP | Learned position table | 32 | 5,000 | 1% | 20,480,000 | 5,570,176 | 328.62s | 62,321 | 745.4 | 0.8539 | 5k steps |
