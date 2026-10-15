@@ -156,7 +156,7 @@ class ReproducibilityTests(unittest.TestCase):
         metadata = run_metadata(config, "cpu", tokenizer=ByteTokenizer())
         self.assertEqual(metadata["config"]["model_directory"], "<repo>/model")
         self.assertEqual(metadata["tokenizer"]["eos_token_id"], 256)
-        self.assertIsNone(metadata["cuda_runtime"])
+        self.assertEqual(metadata["cuda_runtime"], torch.version.cuda)
         self.assertEqual(metadata["libraries"]["torch"], str(torch.__version__))
         with tempfile.TemporaryDirectory() as tmp:
             with (

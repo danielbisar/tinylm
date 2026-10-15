@@ -7,7 +7,11 @@ repository-authored synthetic documents, not downloaded TinyStories. It compares
 shared-block passes at fixed parameter count and token budget, with current text/
 sequence BPB, EOS diagnostics, isolated RNG streams, and fixed evaluation windows.
 Run it from the root with `CUDA_VISIBLE_DEVICES="" python -m experiments.cpu_recurrence`.
-Its ignored outputs are not a substitute for a curated measured report.
+The [measured EOS-aware report](2026-10-15_12-53-15_eos_cpu_recurrence.md) records
+the exact clean revision, full configurations/environment, results, timing limits,
+and [one-pass](2026-10-15_12-53-15_eos_cpu_r1.md) /
+[two-pass](2026-10-15_12-53-17_eos_cpu_r2.md) transcripts. GPU memory is unavailable;
+CPU peak memory was not measured. Do not compare these fixture scores to TinyStories.
 
 ## Historical/pre-EOS experiments
 

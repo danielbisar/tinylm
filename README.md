@@ -14,7 +14,25 @@ TinyLM implements a PyTorch transformer with recurrent/shared blocks, sparse Mix
 - **Controlled sampling and provenance:** independent training/evaluation RNG streams, fixed evaluation windows, effective configuration, source hashes, versions, and dataset metadata in new runs/checkpoints.
 - **Measured trade-offs:** reports retain quality, runtime, allocated VRAM, routing diagnostics, and imperfect generated samples rather than presenting loss alone as success.
 
-## Selected historical results
+## Selected results
+
+### Current, reproducible CPU experiment
+
+The [EOS-aware recurrence report](docs/runs/2026-10-15_12-53-15_eos_cpu_recurrence.md)
+compares one/two shared-block passes on a tiny, source-defined synthetic corpus:
+
+| Passes | Parameters | Final text / sequence BPB | Training-step time |
+|---|---:|---:|---:|
+| One | 90,593 | 3.0167 / 3.0699 | 1.24 s |
+| Two | 90,593 | 2.9974 / 3.0481 | 2.30 s |
+
+The extra pass slightly lowered measured loss while increasing step time ~85.5%.
+This single-seed CPU workflow experiment does **not** establish natural-language
+quality, statistical significance, or GPU performance. Full configurations, clean
+revision, environment, and transcripts are recorded; current-code GPU training remains
+to be measured.
+
+### Historical consumer-GPU experiments
 
 These RTX 3060 results **predate EOS-aware document encoding and the current fixed evaluation sampling**. They are preserved as measured, not reinterpreted using current metric semantics.
 
